@@ -16,3 +16,5 @@ export interface Finding {
   suggestion?: string;
   fingerprint: string;
 }
+
+export * from './snapshot.ts';
