@@ -1,0 +1,9 @@
+[
+  {
+    "ruleId": "path",
+    "file": "docs/guide.md",
+    "line": 3,
+    "col": 18,
+    "suggestion": "/lib/new.ts"
+  }
+]

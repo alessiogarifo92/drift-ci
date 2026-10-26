@@ -1,0 +1,9 @@
+[
+  {
+    "ruleId": "path",
+    "file": "README.md",
+    "line": 3,
+    "col": 15,
+    "suggestion": "lib/new.ts"
+  }
+]

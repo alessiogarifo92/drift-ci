@@ -21427,7 +21427,7 @@ function getIDToken(aud) {
   });
 }
 
-// src/core/index.ts
+// src/core/finding.ts
 var FINDING_SCHEMA_VERSION = 1;
 
 // src/action/main.ts

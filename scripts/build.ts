@@ -51,14 +51,17 @@ function licenseNotices(metafile: Metafile): string {
         name: string;
         version: string;
         license?: string;
+        /** Legacy manifest field, still used by old packages. */
+        licenses?: { type?: string }[];
       };
       const licenseFile = readdirSync(join(root, dir)).find((file) =>
-        /^(licen[cs]e|copying)(\.|$)/i.test(file),
+        /^(licen[cs]e|copying)([.-]|$)/i.test(file),
       );
       const text = licenseFile
         ? readFileSync(join(root, dir, licenseFile), 'utf8').trim()
         : '(no license file shipped with the package)';
-      return { name: manifest.name, version: manifest.version, license: manifest.license, text };
+      const license = manifest.license ?? manifest.licenses?.map((l) => l.type).filter(Boolean).join(' OR ');
+      return { name: manifest.name, version: manifest.version, license: license || undefined, text };
     })
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 

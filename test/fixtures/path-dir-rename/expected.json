@@ -1,0 +1,16 @@
+[
+  {
+    "ruleId": "path",
+    "file": "README.md",
+    "line": 3,
+    "col": 18,
+    "suggestion": "src/new/"
+  },
+  {
+    "ruleId": "path",
+    "file": "README.md",
+    "line": 3,
+    "col": 46,
+    "suggestion": "src/new/a.ts"
+  }
+]
