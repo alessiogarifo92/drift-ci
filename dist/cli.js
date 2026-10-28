@@ -25249,7 +25249,8 @@ function exitCodeFor(report, failOn) {
   return (failOn ?? report.failOn) === "warning" && report.findings.length > 0 ? 1 : 0;
 }
 function printReport(report, options, io) {
-  io.stdout(options.format === "json" ? formatJson(report) : formatText(report));
+  const shown = options.failOn === void 0 ? report : { ...report, failOn: options.failOn };
+  io.stdout(options.format === "json" ? formatJson(shown) : formatText(shown));
   io.stderr(formatWarnings(report));
   return exitCodeFor(report, options.failOn);
 }

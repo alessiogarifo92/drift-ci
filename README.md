@@ -97,7 +97,7 @@ Each line is `line:column  message`; `->` introduces the replacement text the do
 | `findings[].fingerprint` | Stable id of the finding; survives unrelated edits above it. |
 | `warnings` | Conditions that may make the result incomplete. |
 | `configChanged` | Only present, as `true`, when the change itself edits `.drift-ci.yml`: the check ran with the new version. |
-| `failOn` | The `failOn` setting of `.drift-ci.yml`, `none` without one. `--fail-on` does not change it. |
+| `failOn` | The effective level the exit code used: `--fail-on` if given, else `failOn` of `.drift-ci.yml`, else `none`. |
 
 ### Exit codes
 

@@ -31,7 +31,9 @@ export function exitCodeFor(report: Report, failOn: FailOn | undefined): number 
 
 /** Prints the result (stdout) and its warnings (stderr); returns the exit code. */
 export function printReport(report: Report, options: { format: OutputFormat; failOn?: FailOn }, io: Io): number {
-  io.stdout(options.format === 'json' ? formatJson(report) : formatText(report));
+  // The JSON carries the failOn the exit code was computed with: the flag wins over the config.
+  const shown: Report = options.failOn === undefined ? report : { ...report, failOn: options.failOn };
+  io.stdout(options.format === 'json' ? formatJson(shown) : formatText(shown));
   io.stderr(formatWarnings(report));
   return exitCodeFor(report, options.failOn);
 }

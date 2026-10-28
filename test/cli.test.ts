@@ -284,10 +284,10 @@ describe('exit codes', () => {
     expect(await run(['--fail-on', 'warning'], capture(found.dir))).toBe(1);
   });
 
-  it('exits 1 with --fail-on warning and --format json, the document unchanged', async () => {
+  it('exits 1 with --fail-on warning and --format json, the document showing the effective failOn', async () => {
     const io = capture(found.dir);
     expect(await run(['--fail-on', 'warning', '--format', 'json'], io)).toBe(1);
-    expect((JSON.parse(io.out) as CheckResult).failOn).toBe('none');
+    expect((JSON.parse(io.out) as CheckResult).failOn).toBe('warning');
   });
 
   it('exits 0 with --fail-on warning when there is nothing to report', async () => {
@@ -432,3 +432,4 @@ describe('scan command', () => {
     }
   });
 });
+
