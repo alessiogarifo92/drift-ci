@@ -1,3 +1,3 @@
 import { runAction } from './main.ts';
 
-runAction();
+await runAction();
