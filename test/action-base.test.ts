@@ -8,7 +8,7 @@ const PARENT_1 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const MERGE_BASE = 'cccccccccccccccccccccccccccccccccccccccc';
 const REV_LIST = 'rev-list --parents -n1 HEAD';
 const FETCH = `fetch --no-tags origin ${BASE_SHA}`;
-const DEEPEN = `fetch --no-tags --deepen=100 origin ${BASE_SHA}`;
+const DEEPEN = `fetch --no-tags --deepen=100 origin ${BASE_SHA} ${HEAD_SHA}`;
 const MERGE_BASE_CALL = `merge-base ${BASE_SHA} HEAD`;
 
 describe('resolveBase', () => {

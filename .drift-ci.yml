@@ -1,0 +1,5 @@
+# Drift CI on its own repository: fixture docs are test inputs, not documentation.
+version: 1
+docs:
+  exclude:
+    - 'test/fixtures/**'

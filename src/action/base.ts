@@ -51,7 +51,9 @@ export async function resolveBase(
   let base = await mergeBase(git, baseSha);
   if (!base) {
     // A shallow checkout may stop short of the common ancestor; a complete one refuses to deepen.
-    await git(['fetch', '--no-tags', `--deepen=${DEEPEN_BY}`, 'origin', baseSha]).catch(() => undefined);
+    // Both tips are named: recent git deepens only the history of the refs being fetched, so
+    // deepening the base alone leaves HEAD's shallow boundary where it was.
+    await git(['fetch', '--no-tags', `--deepen=${DEEPEN_BY}`, 'origin', baseSha, head]).catch(() => undefined);
     base = await mergeBase(git, baseSha);
   }
   if (!base) {

@@ -24368,6 +24368,7 @@ function npmScriptRule() {
       if (before === void 0 || !before.scripts.has(name)) return void 0;
       const after = resolveIn(packages.head, ref, doc.path) ?? (ref.context?.workspace !== void 0 ? packages.head.at(before.dir) : void 0);
       if (after?.scripts.has(name)) return void 0;
+      if (after?.path !== before.path && packages.head.at(before.dir)?.scripts.has(name)) return void 0;
       const drift = {
         fact: `${before.path}#${name}`,
         message: `npm script \`${name}\` (package \`${labelOf(before)}\`) was removed in this change`

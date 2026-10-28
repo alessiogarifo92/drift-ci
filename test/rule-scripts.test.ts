@@ -301,3 +301,32 @@ describe('npmScriptRule: lifecycle', () => {
     ).toThrow(/prepare/);
   });
 });
+
+describe('npmScriptRule: a package.json added between the doc and the base package', () => {
+  // Seen dogfooding on this repo: a fixture directory added its own package.json
+  // without `build`; its README resolved to the root package in base and to the new one in head.
+  it('does not flag a script that still exists in the package base resolved to', async () => {
+    const root = pkg({ name: 'root', scripts: { build: 'tsc' } });
+    const findings = await findingsOf(rule(), {
+      base: { 'package.json': root, 'README.md': 'x' },
+      head: {
+        'package.json': root,
+        'examples/demo/package.json': pkg({ name: 'demo', scripts: { compile: 'tsc' } }),
+        'examples/demo/README.md': 'Run `npm run build`.',
+      },
+    });
+    expect(findings).toEqual([]);
+  });
+
+  it('still flags the script when the base package lost it too', async () => {
+    const findings = await findingsOf(rule(), {
+      base: { 'package.json': pkg({ name: 'root', scripts: { build: 'tsc' } }), 'examples/demo/README.md': 'Run `npm run build`.' },
+      head: {
+        'package.json': pkg({ name: 'root', scripts: {} }),
+        'examples/demo/package.json': pkg({ name: 'demo', scripts: {} }),
+        'examples/demo/README.md': 'Run `npm run build`.',
+      },
+    });
+    expect(findings).toMatchObject([{ ruleId: 'npm-script', fact: 'package.json#build' }]);
+  });
+});

@@ -84,6 +84,9 @@ export function npmScriptRule(): Rule {
         resolveIn(packages.head, ref, doc.path) ??
         (ref.context?.workspace !== undefined ? packages.head.at(before.dir) : undefined);
       if (after?.scripts.has(name)) return undefined;
+      // A package.json added between the doc and the base package changes which package the doc
+      // resolves to; the script itself is still where base found it, so nothing was removed.
+      if (after?.path !== before.path && packages.head.at(before.dir)?.scripts.has(name)) return undefined;
 
       const drift: Drift = {
         fact: `${before.path}#${name}`,

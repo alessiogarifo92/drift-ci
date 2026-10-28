@@ -43481,6 +43481,7 @@ function npmScriptRule() {
       if (before === void 0 || !before.scripts.has(name)) return void 0;
       const after = resolveIn(packages.head, ref, doc.path) ?? (ref.context?.workspace !== void 0 ? packages.head.at(before.dir) : void 0);
       if (after?.scripts.has(name)) return void 0;
+      if (after?.path !== before.path && packages.head.at(before.dir)?.scripts.has(name)) return void 0;
       const drift = {
         fact: `${before.path}#${name}`,
         message: `npm script \`${name}\` (package \`${labelOf(before)}\`) was removed in this change`
@@ -44071,7 +44072,7 @@ async function resolveBase(git, { headSha, baseSha }) {
   }
   let base = await mergeBase(git, baseSha);
   if (!base) {
-    await git(["fetch", "--no-tags", `--deepen=${DEEPEN_BY}`, "origin", baseSha]).catch(() => void 0);
+    await git(["fetch", "--no-tags", `--deepen=${DEEPEN_BY}`, "origin", baseSha, head]).catch(() => void 0);
     base = await mergeBase(git, baseSha);
   }
   if (!base) {
