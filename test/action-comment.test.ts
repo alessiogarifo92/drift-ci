@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { upsertStickyComment } from '../src/action/comment.ts';
-import { COMMENT_MARKER, renderComment, renderNoDriftComment, type RenderContext } from '../src/action/render.ts';
+import { COMMENT_MARKER, CONFIG_NOTE, renderComment, renderNoDriftComment, type RenderContext } from '../src/action/render.ts';
 import { HEAD_SHA, checkResult, fakeClient, finding } from './helpers/action-fakes.ts';
 
 const ctx: RenderContext = { serverUrl: 'https://github.com', owner: 'acme', repo: 'widgets', headSha: HEAD_SHA };
@@ -47,6 +47,28 @@ describe('upsertStickyComment', () => {
     expect(client.calls).toEqual(['list #7', 'create #7']);
   });
 
+  it('ignores a marker comment of another bot: only github-actions[bot] or the authenticated login own it', async () => {
+    const client = fakeClient([
+      { id: 3, body: `${COMMENT_MARKER}\nfake`, user: { type: 'Bot', login: 'dependabot[bot]' } },
+      { id: 4, body: `${COMMENT_MARKER}\nfake`, user: { type: 'Bot' } },
+    ]);
+    await expect(upsertStickyComment(client, 7, result, ctx)).resolves.toBe('created');
+    expect(client.calls).toEqual(['list #7', 'create #7']);
+  });
+
+  it('recognises the comment of the authenticated user (a PAT or app token) as its own', async () => {
+    const client = fakeClient([{ id: 3, body: `${COMMENT_MARKER}\nold`, user: { type: 'User', login: 'drift-bot' } }]);
+    client.viewer = 'drift-bot';
+    await expect(upsertStickyComment(client, 7, result, ctx)).resolves.toBe('updated');
+    expect(client.calls).toEqual(['list #7', 'update 3']);
+  });
+
+  it('does not take another user for the authenticated one', async () => {
+    const client = fakeClient([{ id: 3, body: `${COMMENT_MARKER}\nfake`, user: { type: 'User', login: 'mallory' } }]);
+    client.viewer = 'drift-bot';
+    await expect(upsertStickyComment(client, 7, result, ctx)).resolves.toBe('created');
+  });
+
   it('ignores a bot comment that does not carry the marker, and one without an author', async () => {
     const client = fakeClient([
       { id: 3, body: 'Coverage report', user: bot },
@@ -71,6 +93,16 @@ describe('upsertStickyComment', () => {
     const client = fakeClient([{ id: 2, body: renderNoDriftComment(ctx), user: bot }]);
     await expect(upsertStickyComment(client, 7, checkResult([]), ctx)).resolves.toBe('unchanged');
     expect(client.calls).toEqual(['list #7']);
+  });
+
+  it('puts the config-changed note into a created and a no-drift comment', async () => {
+    const changed = checkResult([finding()], { configChanged: true });
+    const client = fakeClient();
+    await upsertStickyComment(client, 7, changed, ctx);
+    expect(client.comments[0]?.body).toContain(CONFIG_NOTE);
+    const clean = fakeClient([{ id: 2, body: renderComment(changed, ctx), user: bot }]);
+    await upsertStickyComment(clean, 7, checkResult([], { configChanged: true }), ctx);
+    expect(clean.comments[0]?.body).toContain(CONFIG_NOTE);
   });
 
   it('posts nothing when there is no drift and no earlier comment', async () => {

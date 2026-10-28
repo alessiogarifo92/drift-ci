@@ -1,10 +1,13 @@
 // Make-target rule: a target reference in a head doc has drifted when a makefile in its scope defined the target
-// in base and none does in head (docs/decisions.md, phase 3). Makefiles are only read, never run: `include`s are
-// not followed, so the scope is a union of files, which keeps a target moved into an included `.mk` file unflagged.
+// in base and none does in head (docs/decisions.md, phase 3). Makefiles are only read, never run: `Makefile`,
+// `GNUmakefile`, `*.mk`, `Makefile.*` and every file an `include` names are read, and the scope is the union of
+// them, which keeps a target moved into an included file unflagged. A head makefile with an include the rule
+// cannot resolve, or one that builds targets from variables (`$(VAR):`, `$(eval`, `$(foreach`), makes it unsure.
 import { posix } from 'node:path';
+import { codeName } from '../message.ts';
 import type { Drift, Rule } from '../rules.ts';
 import type { RepoSnapshot, SnapshotEntry } from '../snapshot.ts';
-import { resolveCwdDir } from './packages.ts';
+import { inInventory, resolveCwdDir } from './packages.ts';
 
 export interface MakeTarget {
   name: string;
@@ -16,15 +19,28 @@ const DIRECTIVE = /^(?:-?include|sinclude|ifn?eq|ifn?def|else|endif|export|unexp
 const DEFINE = /^(?:override\s+)?define\b/;
 const ENDEF = /^endef\b/;
 
-/** Physical lines joined across backslash continuations. */
+/** Whether the line ends in an odd number of backslashes, i.e. continues on the next one. */
+function continues(line: string): boolean {
+  let backslashes = 0;
+  for (let i = line.length - 1; i >= 0 && line[i] === '\\'; i--) backslashes++;
+  return backslashes % 2 === 1;
+}
+
+/** Physical lines joined across backslash continuations (one pass: a hostile makefile cannot make it quadratic). */
 function logicalLines(text: string): string[] {
   const physical = text.split(/\r?\n/);
   const result: string[] = [];
   for (let i = 0; i < physical.length; i++) {
     let line = physical[i] as string;
-    while (/(?:^|[^\\])(?:\\\\)*\\$/.test(line) && i + 1 < physical.length) {
-      i++;
-      line = `${line.slice(0, -1).trimEnd()} ${(physical[i] as string).replace(/^\s+/, '')}`;
+    if (continues(line) && i + 1 < physical.length) {
+      const parts: string[] = [];
+      while (continues(line) && i + 1 < physical.length) {
+        parts.push(line.slice(0, -1).trimEnd());
+        i++;
+        line = (physical[i] as string).replace(/^\s+/, '');
+      }
+      parts.push(line);
+      line = parts.join(' ');
     }
     result.push(line);
   }
@@ -116,6 +132,8 @@ interface MakeFile {
   targets: ReadonlyMap<string, string>;
   /** Files named by `include`, `-include` and `sinclude` lines, as written. */
   includes: readonly string[];
+  /** Defines targets the parser cannot name: through variables, `$(eval` or `$(foreach`. */
+  dynamic: boolean;
 }
 
 const INCLUDE = /^(?:-?include|sinclude)\s+(.*)$/;
@@ -128,20 +146,88 @@ function includedFiles(text: string): string[] {
   });
 }
 
+const DYNAMIC_CALL = /\$[({]\s*(?:eval|foreach)\b/;
+
+/** Whether a rule line names its targets through a variable, or a line calls `$(eval`/`$(foreach`. */
+function definesDynamically(text: string): boolean {
+  let defineDepth = 0;
+  for (const line of logicalLines(text)) {
+    const trimmed = line.trim();
+    if (defineDepth > 0) {
+      if (ENDEF.test(trimmed)) defineDepth--;
+      else if (DEFINE.test(trimmed)) defineDepth++;
+      continue;
+    }
+    if (line.startsWith('\t')) continue;
+    const code = stripComment(line).trim();
+    if (code === '') continue;
+    if (DEFINE.test(code)) {
+      defineDepth = 1;
+      continue;
+    }
+    if (DIRECTIVE.test(code)) continue;
+    if (DYNAMIC_CALL.test(code)) return true;
+    const colon = ruleColon(code);
+    if (colon >= 0 && /\$[({]/.test(code.slice(0, colon))) return true;
+  }
+  return false;
+}
+
+/** Doc, notes and backup files that merely look like `Makefile.<ext>`. */
+const NOT_MAKEFILE_EXTENSIONS: ReadonlySet<string> = new Set(['md', 'mdx', 'txt', 'rst', 'bak', 'orig', 'patch', 'diff', 'swp']);
+
 function isMakefile(entry: SnapshotEntry): boolean {
   if (entry.kind !== 'file') return false;
   const base = posix.basename(entry.path);
-  return base === 'Makefile' || base === 'GNUmakefile' || base === 'makefile' || base.endsWith('.mk');
+  if (base === 'Makefile' || base === 'GNUmakefile' || base === 'makefile' || base.endsWith('.mk')) return true;
+  const match = /^(?:GNUmakefile|[Mm]akefile)\.(.+)$/.exec(base);
+  return match !== null && !NOT_MAKEFILE_EXTENSIONS.has((match[1] as string).toLowerCase());
 }
 
-async function readMakefiles(snapshot: RepoSnapshot, files: readonly SnapshotEntry[]): Promise<MakeFile[]> {
-  const paths = files.filter(isMakefile).map((e) => e.path);
-  const contents = await snapshot.readFiles(paths);
-  return paths.map((path) => ({
-    path,
-    targets: new Map(parseMakefile(contents.get(path) ?? '').map((t) => [t.name, t.recipe])),
-    includes: includedFiles(contents.get(path) ?? ''),
-  }));
+/** The repository file an `include` of `file` names: relative to the makefile's directory, else to the root. */
+function resolveInclude(paths: ReadonlySet<string>, file: string, name: string): string | undefined {
+  if (/[$*?[\]{}%]/.test(name)) return undefined; // a variable or a wildcard: not a file we can name
+  const dir = posix.dirname(file);
+  for (const candidate of [dir === '.' ? name : posix.join(dir, name), name]) {
+    const normalized = posix.normalize(candidate).replace(/^(?:\.\/)+/, '');
+    if (paths.has(normalized)) return normalized;
+  }
+  return undefined;
+}
+
+/** Every makefile of the commit plus, transitively, each existing file an `include` names. */
+async function readMakefiles(
+  snapshot: RepoSnapshot,
+  files: readonly SnapshotEntry[],
+  skip: (path: string) => boolean,
+): Promise<MakeFile[]> {
+  const known = new Set(files.filter((e) => e.kind === 'file').map((e) => e.path));
+  const seen = new Set(files.filter((e) => isMakefile(e) && !skip(e.path)).map((e) => e.path));
+  let queue = [...seen];
+  const result: MakeFile[] = [];
+  while (queue.length > 0) {
+    const contents = await snapshot.readFiles(queue);
+    const next: string[] = [];
+    for (const path of queue) {
+      const text = contents.get(path) ?? '';
+      const includes = includedFiles(text);
+      result.push({
+        path,
+        targets: new Map(parseMakefile(text).map((t) => [t.name, t.recipe])),
+        includes,
+        dynamic: definesDynamically(text),
+      });
+      for (const name of includes) {
+        const found = resolveInclude(known, path, name);
+        if (found !== undefined && !seen.has(found) && !skip(found)) {
+          seen.add(found);
+          next.push(found);
+        }
+      }
+    }
+    queue = next;
+  }
+  return result.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
 /** The makefiles a reference may be about: everything under its cwd, else every makefile of the commit. */
@@ -149,12 +235,15 @@ function inScope(files: readonly MakeFile[], dir: string): MakeFile[] {
   return dir === '' ? [...files] : files.filter((f) => f.path.startsWith(`${dir}/`));
 }
 
-/** Whether the makefile includes a file this rule does not read (anything but another makefile it has). */
+/** Whether the makefile includes a file this rule did not read (a variable, a wildcard, a missing file). */
 function hasUnreadInclude(file: MakeFile, makefiles: readonly MakeFile[]): boolean {
-  return file.includes.some((name) => {
-    const wanted = posix.normalize(name).replace(/^(?:\.\/)+/, '');
-    return !makefiles.some((m) => m.path === wanted || m.path.endsWith(`/${wanted}`));
-  });
+  const read = new Set(makefiles.map((m) => m.path));
+  return file.includes.some((name) => resolveInclude(read, file.path, name) === undefined);
+}
+
+/** Whether a makefile of the scope may define targets this rule cannot see. */
+function isUnsure(scope: readonly MakeFile[], makefiles: readonly MakeFile[]): boolean {
+  return scope.some((f) => f.dynamic || hasUnreadInclude(f, makefiles));
 }
 
 /** Whether `make <name>` could build a file: `<dir>/<name>` exists, or a source such as `<name>.c` does (implicit rules). */
@@ -191,9 +280,10 @@ export function makeTargetRule(): Rule {
     kinds: ['make-target'],
 
     async prepare(ctx) {
+      const skip = (path: string) => !inInventory(ctx, path);
       const [base, head] = await Promise.all([
-        readMakefiles(ctx.base, ctx.baseFiles),
-        readMakefiles(ctx.head, ctx.headFiles),
+        readMakefiles(ctx.base, ctx.baseFiles, skip),
+        readMakefiles(ctx.head, ctx.headFiles, skip),
       ]);
       state = { base, head, headPaths: new Set(ctx.headFiles.map((e) => e.path)) };
     },
@@ -208,12 +298,14 @@ export function makeTargetRule(): Rule {
       const name = ref.normalized;
       const defined = inScope(state.base, dir).find((f) => f.targets.has(name));
       if (defined === undefined) return undefined; // never existed: not drift
-      if (inScope(state.head, dir).some((f) => f.targets.has(name))) return undefined;
+      const headScope = inScope(state.head, dir);
+      if (headScope.some((f) => f.targets.has(name))) return undefined;
+      if (isUnsure(headScope, state.head)) return undefined; // it may live in a file or a variable we cannot read
 
-      const drift: Drift = { fact: `make:${name}`, message: `Make target \`${name}\` was removed in this change` };
+      const drift: Drift = { fact: `make:${name}`, message: `Make target ${codeName(name)} was removed in this change` };
       const newName = renamedTo(defined, state.head.find((f) => f.path === defined.path), name);
       if (newName !== undefined) {
-        drift.message = `Make target \`${name}\` was renamed to \`${newName}\` in this change`;
+        drift.message = `Make target ${codeName(name)} was renamed to ${codeName(newName)} in this change`;
         drift.suggestion = newName;
       }
       return drift;
@@ -232,9 +324,9 @@ export function makeTargetRule(): Rule {
       const { head: makefiles, headPaths } = state;
       const scope = inScope(makefiles, dir);
       if (scope.length === 0 || scope.some((f) => f.targets.has(name))) return undefined;
-      if (scope.some((f) => hasUnreadInclude(f, makefiles))) return undefined;
+      if (isUnsure(scope, makefiles)) return undefined;
       if (buildableFile(headPaths, dir, name)) return undefined;
-      return { fact: `make:${name}`, message: `Make target \`${name}\` does not exist at this commit` };
+      return { fact: `make:${name}`, message: `Make target ${codeName(name)} does not exist at this commit` };
     },
   };
 }

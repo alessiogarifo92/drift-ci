@@ -31,8 +31,8 @@ export interface RepoSnapshot {
   readFile(path: string): Promise<string | undefined>;
   /** Reads many files in one batch; absent or non-blob paths are omitted from the result. */
   readFiles(paths: readonly string[]): Promise<Map<string, string>>;
-  /** Whole-word, fixed-string search. Lines are 1-indexed; no match is `[]`. */
-  grep(word: string, options?: { pathspecs?: readonly string[] }): Promise<GrepHit[]>;
+  /** Whole-word, fixed-string search (`ignoreCase`: case-insensitive). Lines are 1-indexed; no match is `[]`. */
+  grep(word: string, options?: { pathspecs?: readonly string[]; ignoreCase?: boolean }): Promise<GrepHit[]>;
 }
 
 export interface Rename {

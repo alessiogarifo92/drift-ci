@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   COMMENT_MARKER,
+  CONFIG_NOTE,
   MAX_COMMENT_CHARS,
   neutralizeText,
   permalink,
@@ -16,15 +17,28 @@ const ctx: RenderContext = { serverUrl: 'https://github.com', owner: 'acme', rep
 describe('permalink', () => {
   it('points at the head SHA, file and line', () => {
     expect(permalink(ctx, 'README.md', 3)).toBe(
-      `https://github.com/acme/widgets/blob/${HEAD_SHA}/README.md#L3`,
+      `https://github.com/acme/widgets/blob/${HEAD_SHA}/README.md?plain=1#L3`,
     );
   });
 
   it('encodes each path segment (spaces, unicode, #, ?, %, parentheses) but keeps the slashes', () => {
     const url = permalink(ctx, 'docs/guía rápida/read me (v2)#1?.md', 12);
     expect(url).toBe(
-      `https://github.com/acme/widgets/blob/${HEAD_SHA}/docs/gu%C3%ADa%20r%C3%A1pida/read%20me%20%28v2%29%231%3F.md#L12`,
+      `https://github.com/acme/widgets/blob/${HEAD_SHA}/docs/gu%C3%ADa%20r%C3%A1pida/read%20me%20%28v2%29%231%3F.md?plain=1#L12`,
     );
+  });
+
+  it.each(['README.md', 'docs/guide.MD', 'a/b.mdx', 'notes.markdown', '.cursor/rules/style.mdc'])(
+    'shows %s as source (?plain=1) so the line anchor works on rendered Markdown',
+    (file) => {
+      const url = permalink(ctx, file, 7);
+      expect(url).toMatch(/\?plain=1#L7$/);
+      expect(url).not.toMatch(/#L7\?/);
+    },
+  );
+
+  it.each(['src/a.ts', '.cursorrules', 'docs/readme.txt', 'Makefile', 'md', 'a.md.bak'])('keeps %s as a plain blob link', (file) => {
+    expect(permalink(ctx, file, 7)).not.toContain('plain=1');
   });
 
   it('uses the configured server (GitHub Enterprise Server)', () => {
@@ -47,8 +61,24 @@ describe('neutralizeText', () => {
 
   it('escapes markdown that could turn doc text into links or tables', () => {
     expect(neutralizeText('[x](http://evil) | `tick` *b* _i_ ~s~ \\')).toBe(
-      '\\[x\\](http://evil) \\| \\`tick\\` \\*b\\* \\_i\\_ \\~s\\~ \\\\',
+      '\\[x\\](http://\u200Bevil) \\| \\`tick\\` \\*b\\* \\_i\\_ \\~s\\~ \\\\',
     );
+  });
+
+  it.each([
+    ['https://evil.example/x', 'https://\u200Bevil.example/x'],
+    ['see http://a.b and ftp://c.d', 'see http://\u200Ba.b and ftp://\u200Bc.d'],
+    ['www.evil.example', 'www.\u200Bevil.example'],
+    ['octo/other#1', 'octo/other\u200B#1'],
+    ['fixes #12 and org/repo#3', 'fixes \u200B#12 and org/repo\u200B#3'],
+    ['issue abc#7', 'issue abc\u200B#7'],
+    ['GH-1 and gh-22', 'GH\u200B-1 and gh\u200B-22'],
+  ])('defuses autolinks and cross-references: %j', (text, expected) => {
+    expect(neutralizeText(text)).toBe(expected);
+  });
+
+  it('leaves a `#` alone when it cannot start a reference', () => {
+    expect(neutralizeText('# heading and a #tag')).toBe('# heading and a #tag');
   });
 
   it('flattens newlines', () => {
@@ -62,7 +92,7 @@ describe('renderComment', () => {
     expect(body.split('\n')[0]).toBe(COMMENT_MARKER);
     expect(COMMENT_MARKER).toBe('<!-- drift-ci:sticky-comment -->');
     expect(body).toContain('1 doc reference may be out of date');
-    expect(body).toContain(`[\`README.md:3\`](https://github.com/acme/widgets/blob/${HEAD_SHA}/README.md#L3)`);
+    expect(body).toContain(`[\`README.md:3\`](https://github.com/acme/widgets/blob/${HEAD_SHA}/README.md?plain=1#L3)`);
     expect(body).toContain('path `src/old.ts` was renamed to `lib/new.ts` in this change');
     expect(body).toContain('Suggestion: `lib/new.ts`');
   });
@@ -140,13 +170,33 @@ describe('renderComment', () => {
 
       This pull request renamed or removed things that docs still mention (checked against \`1111111\`):
 
-      - [\`README.md:3\`](https://github.com/acme/widgets/blob/1111111111111111111111111111111111111111/README.md#L3): path \`src/old.ts\` was renamed to \`lib/new.ts\` in this change
+      - [\`README.md:3\`](https://github.com/acme/widgets/blob/1111111111111111111111111111111111111111/README.md?plain=1#L3): path \`src/old.ts\` was renamed to \`lib/new.ts\` in this change
         Suggestion: \`lib/new.ts\`
-      - [\`docs/setup guide.md:14\`](https://github.com/acme/widgets/blob/1111111111111111111111111111111111111111/docs/setup%20guide.md#L14): npm script \`build:all\` was removed in this change
+      - [\`docs/setup guide.md:14\`](https://github.com/acme/widgets/blob/1111111111111111111111111111111111111111/docs/setup%20guide.md?plain=1#L14): npm script \`build:all\` was removed in this change
 
       <sub>Updated on every push by [drift-ci](https://github.com/alessiogarifo92/drift-ci).</sub>
       "
     `);
+  });
+});
+
+describe('config-changed note', () => {
+  it('opens the sticky comment and the summary when the PR changes .drift-ci.yml', () => {
+    const changed = checkResult([finding()], { configChanged: true });
+    const comment = renderComment(changed, ctx);
+    const lines = comment.split('\n');
+    expect(lines[0]).toBe(COMMENT_MARKER);
+    expect(lines[1]).toContain('This pull request changes .drift-ci.yml; the check used the new configuration.');
+    expect(CONFIG_NOTE).toBe('This pull request changes .drift-ci.yml; the check used the new configuration.');
+    expect(renderSummary(changed, ctx, []).startsWith(`> ${CONFIG_NOTE}`)).toBe(true);
+    expect(renderNoDriftComment(ctx, checkResult([], { configChanged: true }))).toContain(CONFIG_NOTE);
+    expect(renderSummary(checkResult([], { configChanged: true }), ctx, [])).toContain(CONFIG_NOTE);
+  });
+
+  it('is absent otherwise', () => {
+    expect(renderComment(checkResult([finding()]), ctx)).not.toContain('.drift-ci.yml');
+    expect(renderSummary(checkResult([finding()]), ctx, [])).not.toContain('.drift-ci.yml');
+    expect(renderNoDriftComment(ctx)).not.toContain('.drift-ci.yml');
   });
 });
 

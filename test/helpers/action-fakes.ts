@@ -50,6 +50,8 @@ export function fakeCore(inputs: Record<string, string> = {}): FakeCore {
 export interface FakeClient extends GitHubClient {
   comments: IssueComment[];
   calls: string[];
+  /** Login of the authenticated user, as `GET /user` answers; `undefined` as for a GITHUB_TOKEN (403). */
+  viewer: string | undefined;
   /** Errors thrown by the named method instead of doing its work. */
   failures: Partial<Record<'list' | 'create' | 'update', Error>>;
 }
@@ -59,7 +61,9 @@ export function fakeClient(comments: IssueComment[] = []): FakeClient {
   const client: FakeClient = {
     comments: [...comments],
     calls: [],
+    viewer: undefined,
     failures: {},
+    viewerLogin: async () => client.viewer,
     listIssueComments: async (pr) => {
       client.calls.push(`list #${pr}`);
       if (client.failures.list) throw client.failures.list;

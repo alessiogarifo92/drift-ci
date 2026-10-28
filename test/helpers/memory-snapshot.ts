@@ -11,7 +11,8 @@ export interface MemorySnapshotOptions {
 
 const MODES: Readonly<Record<EntryKind, string>> = { file: '100644', symlink: '120000', submodule: '160000' };
 
-function wholeWord(text: string, word: string): boolean {
+function wholeWord(text: string, word: string, ignoreCase = false): boolean {
+  if (ignoreCase) return wholeWord(text.toLowerCase(), word.toLowerCase());
   let from = text.indexOf(word);
   while (from >= 0) {
     const before = text[from - 1];
@@ -52,11 +53,11 @@ export function memorySnapshot(
     listFiles: async () => entries,
     readFile: async (path) => files[path],
     readFiles,
-    grep: async (word) => {
+    grep: async (word, options) => {
       const hits: GrepHit[] = [];
       for (const [path, content] of Object.entries(files)) {
         content.split('\n').forEach((text, i) => {
-          if (wholeWord(text, word)) hits.push({ path, line: i + 1, text });
+          if (wholeWord(text, word, options?.ignoreCase)) hits.push({ path, line: i + 1, text });
         });
       }
       return hits;

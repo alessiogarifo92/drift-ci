@@ -9,6 +9,24 @@ import { isWellKnownEnv } from '../shapes.ts';
 /** At most this many removed names are checked per run (one `git grep` each); the rest are reported as a warning. */
 export const MAX_CANDIDATES = 200;
 
+/** Prefixes of variables that SDKs and tools read from the environment by themselves, with no accessor in the project. */
+export const SDK_ENV_PREFIXES: readonly string[] = [
+  'OPENAI_', 'ANTHROPIC_', 'AWS_', 'AZURE_', 'GOOGLE_', 'GCP_', 'SENTRY_', 'VERCEL_', 'NETLIFY_', 'SUPABASE_',
+  'STRIPE_', 'HF_', 'HUGGINGFACE_', 'GEMINI_', 'MISTRAL_', 'COHERE_', 'GROQ_', 'LANGCHAIN_', 'LANGSMITH_', 'OTEL_',
+  'DD_', 'NEW_RELIC_', 'DOCKER_', 'KUBE', 'TF_',
+];
+
+/** Exact names read implicitly by drivers, servers and platforms. */
+export const SDK_ENV_NAMES: readonly string[] = [
+  'PGHOST', 'PGUSER', 'PGPASSWORD', 'PGDATABASE', 'PGPORT',
+  'DATABASE_URL', 'REDIS_URL', 'PORT', 'HOST', 'LOG_LEVEL', 'DEBUG',
+];
+
+/** A variable some library consumes on its own: removing the project's own read of it proves nothing. */
+export function isSdkEnv(name: string): boolean {
+  return SDK_ENV_NAMES.includes(name) || SDK_ENV_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
+
 const NAME = '[A-Za-z_][A-Za-z0-9_]*';
 const QUOTED = `\\s*['"\`](${NAME})['"\`]\\s*`;
 
@@ -70,8 +88,9 @@ function describeChange(name: string, renamedTo: string | undefined): string {
 }
 
 /**
- * Flags an env-var reference of a head doc when the variable was read in a removed line and
- * `git grep -w NAME head` finds it in no non-doc file. A rename is suggested only when every hunk
+ * Flags an env-var reference of a head doc when the variable was read in a removed line of a non-doc file,
+ * base has a non-doc file mentioning it, and `git grep -wi NAME head` finds it in no
+ * non-doc file. Names SDKs read by themselves (`isSdkEnv`) are never candidates. A rename is suggested only when every hunk
  * that removes the name removes just it and adds exactly one other name.
  *
  * At most `MAX_CANDIDATES` names (sorted) are grepped; a warning says when more were removed.
@@ -88,6 +107,7 @@ export function envRule(): Rule {
       // name -> suggestion per hunk that removes it; `undefined` means that hunk offers none.
       const proposals = new Map<string, (string | undefined)[]>();
       for (const hunk of ctx.hunks) {
+        if (isDocFile(hunk.path)) continue; // a code sample in a doc is not a reader of the variable
         const dotenv = DOTENV_TEMPLATES.has(basename(hunk.path));
         const removed = namesOf(hunk.removed, dotenv);
         const added = namesOf(hunk.added, dotenv);
@@ -96,7 +116,7 @@ export function envRule(): Rule {
         const suggestion =
           removed.length === 1 && added.length === 1 && only !== replacement ? replacement : undefined;
         for (const name of removed) {
-          if (isWellKnownEnv(name)) continue;
+          if (isWellKnownEnv(name) || isSdkEnv(name)) continue;
           const list = proposals.get(name) ?? [];
           list.push(removed.length === 1 ? suggestion : undefined);
           proposals.set(name, list);
@@ -114,8 +134,12 @@ export function envRule(): Rule {
 
       const result = new Map<string, string | undefined>();
       for (const name of candidates) {
-        const hits = await ctx.head.grep(name);
-        if (hits.some((hit) => !isDocFile(hit.path))) continue; // still in use
+        const baseHits = await ctx.base.grep(name);
+        if (!baseHits.some((hit) => !isDocFile(hit.path))) continue; // no code ever read it
+        // Case-insensitive: a settings library reads `database_url` for DATABASE_URL, so a non-doc mention in
+        // another case counts as still in use.
+        const hits = await ctx.head.grep(name, { ignoreCase: true });
+        if (hits.some((hit) => !isDocFile(hit.path))) continue;
         const list = proposals.get(name) ?? [];
         const first = list[0];
         result.set(name, list.every((s) => s === first) ? first : undefined);

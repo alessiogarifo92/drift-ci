@@ -28,6 +28,11 @@ describe('memorySnapshot', () => {
     expect(await snap.grep('FOO')).toEqual([{ path: 'b.md', line: 3, text: 'FOO' }]);
     expect(await snap.grep('MISSING')).toEqual([]);
   });
+
+  it('greps case-insensitively on request', async () => {
+    expect((await snap.grep('foo_bar', { ignoreCase: true })).map((h) => h.path)).toEqual(['b.md']);
+    expect(await snap.grep('foo_bar')).toEqual([]);
+  });
 });
 
 describe('changeSet', () => {

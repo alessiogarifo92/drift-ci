@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # The default merge checkout: HEAD is the merge commit, HEAD^1 the base branch.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 2
       # Runs the committed dist/action.js: rebuild and commit dist/ after changing src/.

@@ -129,14 +129,14 @@ describe('pathRule: what is drift', () => {
     ).toEqual([]);
   });
 
-  it('flags a link whose fragment is ignored, e.g. a#anchor', async () => {
+  it('flags a link whose fragment is ignored, e.g. a#anchor, and keeps the fragment in the suggestion', async () => {
     expect(
       await brief({
         base: { 'README.md': '[g](docs/guide.md#install)', 'docs/guide.md': F },
         head: { 'README.md': '[g](docs/guide.md#install)', 'docs/handbook.md': F },
         changes: { renamed: [{ from: 'docs/guide.md', to: 'docs/handbook.md' }] },
       }),
-    ).toEqual(['docs/guide.md -> docs/handbook.md']);
+    ).toEqual(['docs/guide.md -> docs/handbook.md#install']);
   });
 
   it('flags a case-only rename', async () => {
@@ -550,6 +550,109 @@ describe('pathRule: suggestion style', () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.message).toBe('`src/old.ts` was renamed to `lib/new.ts` in this change');
     expect(result[0]?.suggestion).toBeUndefined();
+  });
+});
+
+describe('pathRule: links GitHub resolves doc-relative only', () => {
+  const mono = (doc: string, extra: Files = {}): Scenario => ({
+    base: { 'package.json': '{}', 'packages/ui/package.json': '{}', 'packages/ui/README.md': doc, 'CONTRIBUTING.md': F, ...extra },
+    head: { 'package.json': '{}', 'packages/ui/package.json': '{}', 'packages/ui/README.md': doc, '.github/CONTRIBUTING.md': F },
+    changes: { renamed: [{ from: 'CONTRIBUTING.md', to: '.github/CONTRIBUTING.md' }] },
+  });
+
+  it.each([
+    ['link', '[guide](CONTRIBUTING.md)'],
+    ['image', '![guide](CONTRIBUTING.md)'],
+    ['definition', '[guide]: CONTRIBUTING.md\n\n[guide]'],
+  ])('does not flag a %s that only the repo-root fallback resolved (already broken on GitHub)', async (_label, doc) => {
+    expect(await brief(mono(doc))).toEqual([]);
+  });
+
+  it('does not flag a link that only the package-root fallback resolved', async () => {
+    const result = await brief({
+      base: { 'packages/a/package.json': '{}', 'packages/a/docs/g.md': '[x](src/i.ts)', 'packages/a/src/i.ts': F },
+      head: { 'packages/a/package.json': '{}', 'packages/a/docs/g.md': '[x](src/i.ts)' },
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('still flags the same fallback match for inline code, which is not a link', async () => {
+    expect(await brief(mono('See `CONTRIBUTING.md`.'))).toEqual(['CONTRIBUTING.md -> .github/CONTRIBUTING.md']);
+  });
+
+  it('still flags a doc-relative link, and a root-anchored one', async () => {
+    expect(
+      await brief({
+        base: { 'docs/a.md': '[x](old.md) [y](/docs/old.md)', 'docs/old.md': F },
+        head: { 'docs/a.md': '[x](old.md) [y](/docs/old.md)' },
+      }),
+    ).toEqual(['docs/old.md -> none', 'docs/old.md -> none']);
+  });
+});
+
+describe('pathRule: suggestion keeps the suffix and the encoding', () => {
+  const sug = async (doc: string, from: string, to: string, docPath = 'README.md'): Promise<string[]> =>
+    (
+      await findings({
+        base: { [docPath]: doc, [from]: F },
+        head: { [docPath]: doc, [to]: F },
+        changes: { renamed: [{ from, to }] },
+      })
+    ).map((f) => f.suggestion ?? 'none');
+
+  it.each([
+    ['[a](docs/a.md#install)', 'docs/b.md#install'],
+    ['[a](docs/a.md?plain=1#L3)', 'docs/b.md?plain=1#L3'],
+    ['[a](docs/a.md?x=1)', 'docs/b.md?x=1'],
+    ['[a]: docs/a.md#top', 'docs/b.md#top'],
+    ['![a](docs/a.md#x "title")', 'docs/b.md#x'],
+    ['See `docs/a.md#install`.', 'docs/b.md#install'],
+    ['See `docs/a.md:12`.', 'docs/b.md:12'],
+    ['See `docs/a.md:12:3`.', 'docs/b.md:12:3'],
+    ['See `docs/a.md:12#frag`.', 'docs/b.md:12#frag'],
+    ['See docs/a.md#install for details.', 'docs/b.md#install'],
+  ])('keeps the suffix of %j', async (doc, expected) => {
+    expect(await sug(doc, 'docs/a.md', 'docs/b.md')).toEqual([expected]);
+  });
+
+  it('adds nothing after a path followed by punctuation', async () => {
+    expect(await sug('See `docs/a.md`, then `docs/a.md`.', 'docs/a.md', 'docs/b.md')).toEqual(['docs/b.md', 'docs/b.md']);
+    expect(await sug('Read docs/a.md.', 'docs/a.md', 'docs/b.md')).toEqual(['docs/b.md']);
+  });
+
+  it('percent-encodes a new path with spaces in a link', async () => {
+    expect(await sug('[a](docs/a.md)', 'docs/a.md', 'docs/b c.md')).toEqual(['docs/b%20c.md']);
+    expect(await sug('![a](docs/a.md)', 'docs/a.md', 'docs/b c.md')).toEqual(['docs/b%20c.md']);
+    expect(await sug('[a]: docs/a.md', 'docs/a.md', 'docs/b c.md')).toEqual(['docs/b%20c.md']);
+  });
+
+  it('percent-encodes parentheses and hashes of a new path in a link', async () => {
+    expect(await sug('[a](docs/a.md)', 'docs/a.md', 'docs/b (1)#.md')).toEqual(['docs/b%20%281%29%23.md']);
+  });
+
+  it('percent-encodes when the original was encoded, and keeps the suffix', async () => {
+    expect(await sug('[a](docs/Getting%20Started.md#linux)', 'docs/Getting Started.md', 'docs/Quickstart.md')).toEqual([
+      'docs/Quickstart.md#linux',
+    ]);
+    expect(await sug('[a](docs/Getting%20Started.md#linux)', 'docs/Getting Started.md', 'docs/Start Here.md')).toEqual([
+      'docs/Start%20Here.md#linux',
+    ]);
+  });
+
+  it('keeps an unencoded link unencoded when nothing needs encoding (non-ASCII included)', async () => {
+    expect(await sug('[a](docs/a.md)', 'docs/a.md', 'docs/guía.md')).toEqual(['docs/guía.md']);
+  });
+
+  it('does not encode paths in code', async () => {
+    expect(await sug('See `docs/a.md`.', 'docs/a.md', 'docs/b c.md')).toEqual(['docs/b c.md']);
+  });
+
+  it('reads an angle-bracketed link destination up to the closing bracket', async () => {
+    expect(await sug('[a](<docs/a.md#x y>)', 'docs/a.md', 'docs/b.md')).toEqual(['docs/b.md#x y']);
+  });
+
+  it('gives no suggestion for a destination holding parentheses', async () => {
+    expect(await sug('[a](docs/a(1).md)', 'docs/a(1).md', 'docs/b.md')).toEqual(['none']);
   });
 });
 

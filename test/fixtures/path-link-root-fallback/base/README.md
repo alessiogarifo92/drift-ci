@@ -1,0 +1,3 @@
+# Root
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).

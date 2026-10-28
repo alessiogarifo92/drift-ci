@@ -1,5 +1,6 @@
 // npm-script rule: a script reference in a head doc has drifted when the package it resolves to defined that
 // script in base and no longer does in head (docs/decisions.md, phase 3). Scripts are keyed by (package, name).
+import { codeName } from '../message.ts';
 import type { Reference } from '../reference.ts';
 import type { Drift, Rule } from '../rules.ts';
 import { loadPackages, resolveCwdDir, type PackageInfo, type PackageSet, type Packages } from './packages.ts';
@@ -33,7 +34,9 @@ const EXPLICIT_RUN = /(?:^|[\s`'"(])(?:npm|pnpm)\s(?:\S+\s)*?(?:run|run-script)\
 function isExplicitRun(ref: Reference): boolean {
   const manager = ref.context?.packageManager;
   if ((manager !== 'npm' && manager !== 'pnpm') || ref.contextLine.includes('--if-present')) return false;
-  const before = ref.contextLine.slice(0, ref.col - 1);
+  // Inline code is its own command: the prose around it says nothing about how the script is run.
+  const open = ref.source === 'inline-code' ? ref.contextLine.lastIndexOf('`', ref.col - 2) : -1;
+  const before = ref.contextLine.slice(open + 1, ref.col - 1);
   const command = before.split(/&&|\|\||[;|]/).pop() ?? '';
   return EXPLICIT_RUN.test(command);
 }
@@ -73,7 +76,7 @@ export function npmScriptRule(): Rule {
 
     check(ref, doc): Drift | undefined {
       if (packages === undefined) throw new Error('npmScriptRule: prepare() must run before check()');
-      if (!locatable(ref, doc.path)) return undefined;
+      if (!locatable(ref, doc.path) || ref.context?.allWorkspaces) return undefined;
 
       const name = ref.normalized;
       const before = resolveIn(packages.base, ref, doc.path);
@@ -90,11 +93,11 @@ export function npmScriptRule(): Rule {
 
       const drift: Drift = {
         fact: `${before.path}#${name}`,
-        message: `npm script \`${name}\` (package \`${labelOf(before)}\`) was removed in this change`,
+        message: `npm script ${codeName(name)} (package ${codeName(labelOf(before))}) was removed in this change`,
       };
       const newName = renamedTo(before, after, name);
       if (newName !== undefined) {
-        drift.message = `npm script \`${name}\` (package \`${labelOf(before)}\`) was renamed to \`${newName}\` in this change`;
+        drift.message = `npm script ${codeName(name)} (package ${codeName(labelOf(before))}) was renamed to ${codeName(newName)} in this change`;
         drift.suggestion = newName;
       }
       return drift;
@@ -102,14 +105,14 @@ export function npmScriptRule(): Rule {
 
     scan(ref, doc): Drift | undefined {
       if (packages === undefined) throw new Error('npmScriptRule: prepare() must run before scan()');
-      if (!isExplicitRun(ref) || !locatable(ref, doc.path)) return undefined;
+      if (!isExplicitRun(ref) || !locatable(ref, doc.path) || ref.context?.allWorkspaces) return undefined;
 
       const name = ref.normalized;
       const target = resolveIn(packages.head, ref, doc.path);
       if (target === undefined || target.scripts.has(name)) return undefined;
       return {
         fact: `${target.path}#${name}`,
-        message: `npm script \`${name}\` (package \`${labelOf(target)}\`) does not exist at this commit`,
+        message: `npm script ${codeName(name)} (package ${codeName(labelOf(target))}) does not exist at this commit`,
       };
     },
   };

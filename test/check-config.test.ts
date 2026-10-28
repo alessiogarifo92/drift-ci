@@ -84,8 +84,45 @@ describe('runCheck: historical context (always on)', () => {
     expect(await findingsFor({ 'README.md': line }, { config: defaultConfig() })).toEqual([]);
   });
 
+  it.each([
+    'It moved from `src/old.ts` to `lib/new.ts`.',
+    '`src/old.ts` was renamed to `lib/new.ts`.',
+    '`src/old.ts` was removed; use `make deploy`.',
+    '`src/old.ts` has been replaced by `lib/new.ts`.',
+    '`src/old.ts` is gone, it is no longer used.',
+    '`src/old.ts` used to be the entry point.',
+    '`src/old.ts` now lives in `lib/`.',
+  ])('drops a finding on the same-PR wording %j', async (line) => {
+    expect(await findingsFor({ 'README.md': line })).toEqual([]);
+  });
+
+  it('still flags a plain line with the old name only', async () => {
+    expect(await findingsFor({ 'README.md': 'The entry point is `src/old.ts`, it starts the app.' })).toEqual([
+      'README.md:1',
+    ]);
+  });
+
   it('only looks at the line of the reference', async () => {
     expect(await findingsFor({ 'README.md': `Formerly something.\n\`${OLD}\`` })).toEqual(['README.md:2']);
+  });
+});
+
+describe('runCheck: the author already wrote the new name', () => {
+  const suggesting = (): Rule => ({
+    id: 'path',
+    kinds: ['path'],
+    prepare: async () => undefined,
+    check: (ref) => (ref.normalized === OLD ? { fact: OLD, message: 'moved', suggestion: 'lib/new.ts' } : undefined),
+  });
+
+  it('drops a finding whose line already contains its suggestion', async () => {
+    const files = { 'README.md': 'Entry: `lib/new.ts`, also see `src/old.ts`.\nTry `src/old.ts` here.' };
+    expect(await findingsFor(files, { rules: [suggesting()] })).toEqual(['README.md:2']);
+  });
+
+  it('keeps a finding without a suggestion on a line that names other files', async () => {
+    const files = { 'README.md': 'Entry: `lib/new.ts`, also see `src/old.ts`.' };
+    expect(await findingsFor(files)).toEqual(['README.md:1']);
   });
 });
 

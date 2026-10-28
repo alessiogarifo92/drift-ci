@@ -2,7 +2,7 @@
 // whether the references found there drifted in the change. Pure: everything
 // it knows about the repository comes through the two snapshots and the change set.
 import { collectFindings } from './collect.ts';
-import { CHECK_RULE_IDS, type CheckKey, type DriftConfig } from './config.ts';
+import { CHECK_RULE_IDS, CONFIG_PATH, isExcludedByConfig, type CheckKey, type DriftConfig } from './config.ts';
 import { FINDING_SCHEMA_VERSION, type CheckResult } from './finding.ts';
 import type { RepoIdentity } from './shapes.ts';
 import type { CheckContext, DiffHunk, Rule } from './rules.ts';
@@ -22,6 +22,15 @@ export interface CheckOptions {
   docFilter?: (path: string) => boolean;
   /** Zero-context diff hunks, for rules that look at removed lines (env vars). */
   hunks?: readonly DiffHunk[];
+}
+
+/** Whether the change adds, modifies or renames something into `.drift-ci.yml`. */
+function touchesConfig(changes: ChangeSet): boolean {
+  return (
+    changes.added.includes(CONFIG_PATH) ||
+    changes.modified.includes(CONFIG_PATH) ||
+    changes.renamed.some((r) => r.to === CONFIG_PATH)
+  );
 }
 
 /** Ids of the rules the config's `checks` switch off. */
@@ -53,6 +62,7 @@ export async function runCheck(
     baseFiles,
     headFiles,
     hunks,
+    ...(config ? { excludedPaths: (path: string) => isExcludedByConfig(path, config) } : {}),
     warn: (message) => {
       if (!warnings.includes(message)) warnings.push(message);
     },
@@ -65,6 +75,7 @@ export async function runCheck(
     ...(repo ? { repo } : {}),
     ...(config ? { config } : {}),
     ...(options.docFilter ? { docFilter: options.docFilter } : {}),
+    warn: ctx.warn,
   });
 
   return {
@@ -75,5 +86,6 @@ export async function runCheck(
     findings,
     warnings,
     failOn: config?.failOn ?? 'none',
+    ...(touchesConfig(changes) ? { configChanged: true as const } : {}),
   };
 }

@@ -96,6 +96,7 @@ Each line is `line:column  message`; `->` introduces the replacement text the do
 | `findings[].suggestion` | Optional. The replacement text, in the style the doc used. Never present in `scan`. |
 | `findings[].fingerprint` | Stable id of the finding; survives unrelated edits above it. |
 | `warnings` | Conditions that may make the result incomplete. |
+| `configChanged` | Only present, as `true`, when the change itself edits `.drift-ci.yml`: the check ran with the new version. |
 | `failOn` | The `failOn` setting of `.drift-ci.yml`, `none` without one. `--fail-on` does not change it. |
 
 ### Exit codes
@@ -104,7 +105,7 @@ Each line is `line:column  message`; `->` introduces the replacement text the do
 |---|---|
 | `0` | The run completed, and either there are no findings or `failOn` is `none`. |
 | `1` | There are findings and the effective `failOn` (`--fail-on`, else `.drift-ci.yml`) is `warning`. Findings are still printed. |
-| `2` | Usage or runtime error: unknown option or subcommand, unknown ref, not a git repository, invalid `.drift-ci.yml`. Nothing is printed on stdout. |
+| `2` | Usage or runtime error: unknown option or subcommand, unknown ref, not a git repository, invalid `.drift-ci.yml`, or an unexpected internal error (`drift-ci: internal error: ...`). Nothing is printed on stdout. |
 
 ## GitHub Action
 
@@ -119,6 +120,10 @@ permissions:
   contents: read
   pull-requests: write
 
+concurrency:
+  group: drift-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   drift:
     runs-on: ubuntu-latest
@@ -126,10 +131,18 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 2
-      - uses: alessiogarifo92/drift-ci@main
+      - uses: alessiogarifo92/drift-ci@main # for trying it out: see "Pin the action" below
 ```
 
-Pin the action to a release tag or a commit SHA once there is one.
+The `concurrency` block makes a newer push cancel the run of the previous one, so two runs never race to update the same sticky comment.
+
+**Pin the action.** `@main` follows whatever lands on the default branch: a compromised or broken push would run in your workflow with your `pull-requests: write` token. For anything beyond trying it out, pin a full commit SHA of a release, with the tag in a comment so Dependabot can update it:
+
+```yaml
+      - uses: alessiogarifo92/drift-ci@<commit-sha> # vX.Y.Z
+```
+
+A tag can be moved after you reviewed it; a commit SHA cannot.
 
 ### How it works
 
@@ -140,8 +153,8 @@ Pin the action to a release tag or a commit SHA once there is one.
 ### What you get
 
 - **Job summary**: every finding.
-- **Annotations**: the first 10 findings on their lines (GitHub shows at most 10 per step); the summary has the rest.
-- **One sticky PR comment**, updated in place on every push (found by a hidden marker; only the Actions bot's own comment is edited). Each finding links to the line at `head.sha` and shows the suggested replacement. Text quoted from the docs is neutralised: no `@`-mentions, no HTML. When a later push fixes everything, the comment is edited to say "no drift found" rather than deleted; a PR that never had findings gets no comment.
+- **Annotations**: the first 10 findings on their lines (GitHub shows at most 10 per step); the summary has the rest. Warnings of the run itself (an unreadable `package.json`, a skipped doc) go to the log and the summary, never to annotations, so they cannot push findings out of the ten.
+- **One sticky PR comment**, updated in place on every push (found by a hidden marker; only a comment by `github-actions[bot]`, or by the user the token belongs to when it is a personal or app token, is edited). Each finding links to the line at `head.sha` (Markdown files open as source, `?plain=1`, so the line anchor works) and shows the suggested replacement. When the pull request itself changes `.drift-ci.yml`, a note at the top says the check used the new configuration. Text quoted from the docs is neutralised: no `@`-mentions, no HTML. When a later push fixes everything, the comment is edited to say "no drift found" rather than deleted; a PR that never had findings gets no comment.
 - **Fork PRs, or a token without `pull-requests: write`**: summary and annotations only, with a note in the summary. The job does not fail.
 
 ### Inputs

@@ -127,6 +127,8 @@ const PM_WORKSPACE_FLAGS: Record<Manager, ReadonlySet<string>> = {
   yarn: new Set(),
   bun: new Set(['--filter', '-F']),
 };
+/** Flags that run a script in every workspace instead of one package. */
+const ALL_WORKSPACES_FLAGS: ReadonlySet<string> = new Set(['-r', '--recursive', '--workspaces', '-ws']);
 const PM_DIR_FLAGS: Record<Manager, ReadonlySet<string>> = {
   npm: new Set(['--prefix', '-C']),
   pnpm: new Set(['-C', '--dir']),
@@ -297,6 +299,7 @@ function packageManagerHits(manager: Manager, words: Word[], state: ShellState):
   const positionals: Word[] = [];
   let workspace: string | undefined;
   let dir: string | undefined;
+  let allWorkspaces = false;
   for (let k = 0; k < words.length; k++) {
     const word = words[k] as Word;
     if (word.value === '--') break;
@@ -305,6 +308,7 @@ function packageManagerHits(manager: Manager, words: Word[], state: ShellState):
       continue;
     }
     const [flag, inline] = splitFlag(word.value);
+    if (ALL_WORKSPACES_FLAGS.has(flag)) allWorkspaces = true;
     const takesValue =
       PM_WORKSPACE_FLAGS[manager].has(flag) || PM_DIR_FLAGS[manager].has(flag) || PM_VALUE_FLAGS.has(flag);
     if (!takesValue) continue;
@@ -314,8 +318,10 @@ function packageManagerHits(manager: Manager, words: Word[], state: ShellState):
       k++;
     }
     if (value === undefined) continue;
-    if (PM_WORKSPACE_FLAGS[manager].has(flag)) workspace = value;
-    else if (PM_DIR_FLAGS[manager].has(flag)) dir = value;
+    if (PM_WORKSPACE_FLAGS[manager].has(flag)) {
+      workspace = value;
+      if (value.includes('*')) allWorkspaces = true;
+    } else if (PM_DIR_FLAGS[manager].has(flag)) dir = value;
   }
 
   let rest = positionals;
@@ -328,6 +334,7 @@ function packageManagerHits(manager: Manager, words: Word[], state: ShellState):
 
   const context: ReferenceContext = { packageManager: manager };
   if (workspace !== undefined) context.workspace = workspace;
+  if (allWorkspaces) context.allWorkspaces = true;
   const cwd = dir !== undefined ? joinCwd(state.cwd, dir) : state.cwd;
   if (cwd !== undefined) context.cwd = cwd;
   return [{ kind: 'npm-script', normalized: script.name, offset: script.start, shadow: false, context }];

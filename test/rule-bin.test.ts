@@ -112,10 +112,33 @@ describe('binRule: invalid package.json', () => {
     const result = await runRule(rule(), {
       base: { 'package.json': pkg({ name: 'p', bin: { mytool: './x.js' } }), ...doc },
       head: { 'package.json': '{oops', ...doc },
+      changes: { modified: ['package.json'] },
     });
     expect(result.findings).toEqual([]);
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toMatch(/^package\.json: invalid package\.json \(.+\); its scripts and bins are ignored$/);
+  });
+});
+
+describe('binRule: fixtures and excluded paths do not count', () => {
+  const real = { 'package.json': pkg({ name: 'plugin', devDependencies: { eslint: '9' } }), ...doc };
+
+  it.each(['test/fixtures/p/package.json', 'a/__fixtures__/p/package.json', 'testdata/p/package.json', 'vendor/p/package.json'])(
+    'a bin of %s is not a bin of this project',
+    async (path) => {
+      const withBin = { ...real, [path]: pkg({ name: 'fake', bin: { mytool: 'bin.js' } }) };
+      expect(await briefOf(rule(), { base: withBin, head: real })).toEqual([]);
+      // ...and the same bin in a real package is flagged.
+      const flagged = { ...real, 'tools/p/package.json': pkg({ name: 'fake', bin: { mytool: 'bin.js' } }) };
+      expect(await briefOf(rule(), { base: flagged, head: real })).toEqual(['bin:mytool -> none']);
+    },
+  );
+
+  it('ignores the packages docs.exclude matches', async () => {
+    const withBin = { ...real, 'generated/p/package.json': pkg({ name: 'fake', bin: { mytool: 'bin.js' } }) };
+    expect(
+      await briefOf(rule(), { base: withBin, head: real, exclude: ['generated/**'] }),
+    ).toEqual([]);
   });
 });
 

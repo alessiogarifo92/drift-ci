@@ -97,12 +97,22 @@ function packageSet(packages: readonly PackageInfo[]): PackageSet {
   };
 }
 
+/** Directory names whose content is test data or someone else's code, never part of the project's inventory. */
+const INVENTORY_EXCLUDED_SEGMENTS: ReadonlySet<string> = new Set([
+  'fixtures', '__fixtures__', 'testdata', 'node_modules', 'vendor',
+]);
+
+/**
+ * Whether a package.json or makefile at `path` takes part in the inventories of the package, bin and make
+ * rules: not under `fixtures`, `__fixtures__`, `testdata`, `node_modules` or `vendor`, and not matched by the
+ * config's `docs.exclude`. (`examples` and `test` stay: they may hold real packages.)
+ */
+export function inInventory(ctx: Pick<CheckContext, 'excludedPaths'>, path: string): boolean {
+  return !path.split('/').some((segment) => INVENTORY_EXCLUDED_SEGMENTS.has(segment)) && !ctx.excludedPaths?.(path);
+}
+
 function isPackageJson(entry: SnapshotEntry): boolean {
-  return (
-    entry.kind === 'file' &&
-    posix.basename(entry.path) === 'package.json' &&
-    !entry.path.split('/').includes('node_modules')
-  );
+  return entry.kind === 'file' && posix.basename(entry.path) === 'package.json';
 }
 
 interface Side {
@@ -110,8 +120,12 @@ interface Side {
   invalid: Map<string, string>;
 }
 
-async function readSide(snapshot: RepoSnapshot, files: readonly SnapshotEntry[]): Promise<Side> {
-  const paths = files.filter(isPackageJson).map((e) => e.path);
+async function readSide(
+  snapshot: RepoSnapshot,
+  files: readonly SnapshotEntry[],
+  keep: (path: string) => boolean,
+): Promise<Side> {
+  const paths = files.filter((e) => isPackageJson(e) && keep(e.path)).map((e) => e.path);
   const contents = await snapshot.readFiles(paths);
   const side: Side = { parsed: new Map(), invalid: new Map() };
   for (const path of paths) {
@@ -125,17 +139,26 @@ async function readSide(snapshot: RepoSnapshot, files: readonly SnapshotEntry[])
 const cache = new WeakMap<CheckContext, Promise<Packages>>();
 
 /**
- * The packages of base and head. A package.json that cannot be read on either side is warned about and
- * left out of both: comparing it to the other side would report its scripts as removed.
+ * The packages of base and head. A package.json that cannot be read on either side is left out of both
+ * (comparing it to the other side would report its scripts as removed) and warned about when the diff touched it.
+ * Packages under fixture-like directories and `docs.exclude` paths are not read at all (`inInventory`).
  * Computed once per run and shared by the rules that need it.
  */
 export function loadPackages(ctx: CheckContext): Promise<Packages> {
   let loaded = cache.get(ctx);
   if (loaded === undefined) {
     loaded = (async () => {
-      const [base, head] = await Promise.all([readSide(ctx.base, ctx.baseFiles), readSide(ctx.head, ctx.headFiles)]);
+      const keep = (path: string) => inInventory(ctx, path);
+      const [base, head] = await Promise.all([
+        readSide(ctx.base, ctx.baseFiles, keep),
+        readSide(ctx.head, ctx.headFiles, keep),
+      ]);
       const invalid = new Set([...base.invalid.keys(), ...head.invalid.keys()]);
+      // Only a package.json the diff touched is worth a warning; scan mode has no diff (base is head): all count.
+      const { added, modified, renamed } = ctx.changes;
+      const touched = new Set([...added, ...modified, ...renamed.map((r) => r.to)]);
       for (const [path, reason] of [...base.invalid, ...head.invalid]) {
+        if (ctx.base !== ctx.head && !touched.has(path)) continue;
         ctx.warn(`${path}: invalid package.json (${reason}); its scripts and bins are ignored`);
       }
       const usable = (side: Side) => packageSet([...side.parsed.values()].filter((p) => !invalid.has(p.path)));

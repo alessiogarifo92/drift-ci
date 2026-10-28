@@ -11,6 +11,8 @@ export interface ReferenceContext {
   /** From `npm -w <pkg>` / `--workspace=<pkg>`, `pnpm --filter <pkg>` / `-F <pkg>`, `yarn workspace <pkg>`. */
   workspace?: string;
   packageManager?: 'npm' | 'pnpm' | 'yarn' | 'bun';
+  /** The command runs the script in every workspace: `-r`, `--recursive`, `--workspaces`, `-ws`, or a `--filter` glob. */
+  allWorkspaces?: true;
 }
 
 export interface Reference {

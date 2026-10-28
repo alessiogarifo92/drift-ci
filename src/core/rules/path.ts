@@ -2,6 +2,7 @@
 // something in base and resolves to nothing in head (docs/decisions.md, phase 3).
 import { posix } from 'node:path';
 import ignore, { type Ignore } from 'ignore';
+import { codeName } from '../message.ts';
 import type { Reference } from '../reference.ts';
 import type { CheckContext, Drift, Rule } from '../rules.ts';
 import type { ChangeSet, SnapshotEntry } from '../snapshot.ts';
@@ -111,10 +112,45 @@ function movedTo(state: State, path: string): string | undefined {
   return undefined;
 }
 
-/** `newPath` written the way the doc wrote the reference, or `undefined` when its text is not a path. */
+const LINK_SOURCES: ReadonlySet<Reference['source']> = new Set(['link', 'image', 'definition']);
+
+/** A path written into a link: each segment percent-encoded, parentheses included. */
+function encodeLinkPath(path: string): string {
+  return path
+    .split('/')
+    .map((segment) => encodeURIComponent(segment).replace(/[()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`))
+    .join('/');
+}
+
+/** The destination of a link, image or definition as written, from the column of its path on. */
+function rawDestination(ref: Reference): string | undefined {
+  const token = ref.contextLine.slice(ref.col - 1);
+  const raw = ref.contextLine[ref.col - 2] === '<' ? /^[^>]*/.exec(token) : /^[^\s)]*/.exec(token);
+  return raw?.[0];
+}
+
+/** What follows the path of a reference as written: a link's `?query#anchor`, code's `:line` and `#anchor`. */
+function suffixOf(ref: Reference, raw: string | undefined): string {
+  if (raw !== undefined) {
+    const cut = raw.search(/[?#]/);
+    return cut >= 0 ? raw.slice(cut) : '';
+  }
+  let rest = ref.contextLine.slice(ref.col - 1);
+  while (rest.startsWith('./')) rest = rest.slice(2);
+  if (!rest.startsWith(ref.normalized)) return '';
+  return /^(?::\d+(?::\d+)?)?(?:#[\w.:/-]*[\w/-])?/.exec(rest.slice(ref.normalized.length))?.[0] ?? '';
+}
+
+/**
+ * `newPath` written the way the doc wrote the reference (relative or rooted, `./`, trailing `/`, `?query`,
+ * `#anchor` and `:line` suffix, percent-encoding in links), or `undefined` when its text is not a path.
+ */
 function styled(ref: Reference, origin: string, newPath: string): string | undefined {
   const token = ref.contextLine.slice(ref.col - 1);
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(token)) return undefined; // a URL: the text to replace is not a path
+  const isLink = LINK_SOURCES.has(ref.source);
+  const raw = isLink ? rawDestination(ref) : undefined;
+  if (raw !== undefined && raw.includes('(')) return undefined; // the extent of the destination is unclear
   let text: string;
   if (ref.normalized.startsWith('/')) {
     text = `/${newPath}`;
@@ -123,7 +159,12 @@ function styled(ref: Reference, origin: string, newPath: string): string | undef
     if (text === '') return undefined;
     if (token.startsWith('./') && !text.startsWith('../')) text = `./${text}`;
   }
-  return ref.normalized.endsWith('/') && !text.endsWith('/') ? `${text}/` : text;
+  if (ref.normalized.endsWith('/') && !text.endsWith('/')) text = `${text}/`;
+  if (isLink) {
+    const path = raw?.replace(/[?#].*$/, '') ?? '';
+    if (/%[0-9A-Fa-f]{2}/.test(path) || /[\s()#?%<>]/.test(text)) text = encodeLinkPath(text);
+  }
+  return `${text}${suffixOf(ref, raw)}`;
 }
 
 /** Rules of every `.gitignore` of the head commit, shallowest directory first. */
@@ -157,8 +198,8 @@ function ignoreMatcher(gitignores: readonly { dir: string; rules: Ignore }[]): S
 
 function describeChange(fact: string, movedTo: string | undefined): string {
   return movedTo === undefined
-    ? `\`${fact}\` was removed in this change`
-    : `\`${fact}\` was renamed to \`${movedTo}\` in this change`;
+    ? `${codeName(fact)} was removed in this change`
+    : `${codeName(fact)} was renamed to ${codeName(movedTo)} in this change`;
 }
 
 /**
@@ -196,6 +237,12 @@ export function pathRule(): Rule {
 
       const matched = candidatesFor(s.base, doc.path, ref.normalized).find((c) => exists(s.base, c.path));
       if (matched === undefined) return undefined; // never resolved: a pre-existing broken reference
+      // GitHub resolves a link doc-relative (or from the root when it starts with `/`) and never through the
+      // package-root or repo-root fallback: such a link was already broken there.
+      if (LINK_SOURCES.has(ref.source) && !ref.normalized.startsWith('/')) {
+        const docRelative = clean(posix.join(posix.dirname(doc.path), ref.normalized));
+        if (matched.path !== docRelative) return undefined;
+      }
 
       const inHead = [
         ...candidatesFor(s.head, doc.path, ref.normalized),
@@ -232,7 +279,7 @@ export function pathRule(): Rule {
         const hasParent = candidates.some((c) => posix.dirname(c.path) === '.' || exists(s.head, posix.dirname(c.path)));
         if (!hasParent) return undefined;
       }
-      return { fact: first.path, message: `\`${ref.normalized}\` does not exist at this commit` };
+      return { fact: first.path, message: `${codeName(ref.normalized)} does not exist at this commit` };
     },
   };
 }

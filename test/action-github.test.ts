@@ -111,4 +111,34 @@ describe('createGitHubClient', () => {
     await createGitHubClient({ ...options, owner: 'a b', repo: 'c/d', fetchFn }).listIssueComments(1);
     expect(calls[0]?.url).toContain('/repos/a%20b/c%2Fd/issues/1/comments');
   });
+
+  it('reads the login of the authenticated user from GET /user, once', async () => {
+    const { fetchFn, calls } = fakeFetch(() => ({ json: { login: 'drift-bot', type: 'User' } }));
+    const client = createGitHubClient({ ...options, fetchFn });
+    expect(await client.viewerLogin()).toBe('drift-bot');
+    expect(await client.viewerLogin()).toBe('drift-bot');
+    expect(calls.map((c) => c.url)).toEqual(['https://api.github.com/user']);
+  });
+
+  it.each([401, 403, 404])('answers undefined when GET /user is refused with %i (a GITHUB_TOKEN), and remembers it', async (status) => {
+    const { fetchFn, calls } = fakeFetch(() => ({ status, json: { message: 'Resource not accessible by integration' } }));
+    const client = createGitHubClient({ ...options, fetchFn });
+    expect(await client.viewerLogin()).toBeUndefined();
+    expect(await client.viewerLogin()).toBeUndefined();
+    expect(calls).toHaveLength(1);
+  });
+
+  it('answers undefined when /user has no login', async () => {
+    const { fetchFn } = fakeFetch(() => ({ json: {} }));
+    expect(await createGitHubClient({ ...options, fetchFn }).viewerLogin()).toBeUndefined();
+  });
+
+  it('rethrows other failures of GET /user and does not cache them', async () => {
+    let fail = true;
+    const { fetchFn } = fakeFetch(() => (fail ? { status: 500, json: { message: 'boom' } } : { json: { login: 'x' } }));
+    const client = createGitHubClient({ ...options, fetchFn });
+    await expect(client.viewerLogin()).rejects.toMatchObject({ status: 500 });
+    fail = false;
+    expect(await client.viewerLogin()).toBe('x');
+  });
 });

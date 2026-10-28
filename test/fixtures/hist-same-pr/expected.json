@@ -1,0 +1,3 @@
+[
+  { "ruleId": "path", "file": "docs/guide.md", "line": 1, "col": 6, "suggestion": "lib/new.js" }
+]

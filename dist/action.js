@@ -41945,6 +41945,7 @@ var PM_WORKSPACE_FLAGS = {
   yarn: /* @__PURE__ */ new Set(),
   bun: /* @__PURE__ */ new Set(["--filter", "-F"])
 };
+var ALL_WORKSPACES_FLAGS = /* @__PURE__ */ new Set(["-r", "--recursive", "--workspaces", "-ws"]);
 var PM_DIR_FLAGS = {
   npm: /* @__PURE__ */ new Set(["--prefix", "-C"]),
   pnpm: /* @__PURE__ */ new Set(["-C", "--dir"]),
@@ -42107,6 +42108,7 @@ function packageManagerHits(manager, words, state) {
   const positionals = [];
   let workspace;
   let dir;
+  let allWorkspaces = false;
   for (let k = 0; k < words.length; k++) {
     const word = words[k];
     if (word.value === "--") break;
@@ -42115,6 +42117,7 @@ function packageManagerHits(manager, words, state) {
       continue;
     }
     const [flag, inline] = splitFlag(word.value);
+    if (ALL_WORKSPACES_FLAGS.has(flag)) allWorkspaces = true;
     const takesValue = PM_WORKSPACE_FLAGS[manager].has(flag) || PM_DIR_FLAGS[manager].has(flag) || PM_VALUE_FLAGS.has(flag);
     if (!takesValue) continue;
     let value2 = inline;
@@ -42123,8 +42126,10 @@ function packageManagerHits(manager, words, state) {
       k++;
     }
     if (value2 === void 0) continue;
-    if (PM_WORKSPACE_FLAGS[manager].has(flag)) workspace = value2;
-    else if (PM_DIR_FLAGS[manager].has(flag)) dir = value2;
+    if (PM_WORKSPACE_FLAGS[manager].has(flag)) {
+      workspace = value2;
+      if (value2.includes("*")) allWorkspaces = true;
+    } else if (PM_DIR_FLAGS[manager].has(flag)) dir = value2;
   }
   let rest = positionals;
   if (manager === "yarn" && positionals[0]?.value === "workspace") {
@@ -42135,6 +42140,7 @@ function packageManagerHits(manager, words, state) {
   if (!script) return [];
   const context = { packageManager: manager };
   if (workspace !== void 0) context.workspace = workspace;
+  if (allWorkspaces) context.allWorkspaces = true;
   const cwd = dir !== void 0 ? joinCwd(state.cwd, dir) : state.cwd;
   if (cwd !== void 0) context.cwd = cwd;
   return [{ kind: "npm-script", normalized: script.name, offset: script.start, shadow: false, context }];
@@ -42577,6 +42583,8 @@ function defaultConfig() {
     failOn: "none"
   };
 }
+var MAX_GLOB_LENGTH = 256;
+var MAX_GLOB_WILDCARDS = 8;
 function isMapping(value2) {
   return typeof value2 === "object" && value2 !== null && !Array.isArray(value2);
 }
@@ -42602,10 +42610,15 @@ function parseConfig(text5, source = CONFIG_PATH) {
     }
   };
   const mappingAt = (value2, path2) => isMapping(value2) ? value2 : fail(`${path2} must be a mapping`);
+  const limited = (glob, path2) => {
+    if (glob.length > MAX_GLOB_LENGTH) fail(`${path2} is longer than ${MAX_GLOB_LENGTH} characters`);
+    if ((glob.match(/[*?]/g) ?? []).length > MAX_GLOB_WILDCARDS) fail(`${path2} has more than ${MAX_GLOB_WILDCARDS} wildcards (* or ?)`);
+    return glob;
+  };
   const globsAt = (value2, path2) => {
     if (!Array.isArray(value2)) return fail(`${path2} must be a list of globs`);
     return value2.map(
-      (item, i) => typeof item === "string" && item !== "" ? item : fail(`${path2}[${i}] must be a non-empty string`)
+      (item, i) => typeof item === "string" && item !== "" ? limited(item, `${path2}[${i}]`) : fail(`${path2}[${i}] must be a non-empty string`)
     );
   };
   checkKeys(raw, ["version", "docs", "checks", "ignore", "failOn"], "");
@@ -42645,7 +42658,7 @@ function parseConfig(text5, source = CONFIG_PATH) {
         if (!(key in entry)) continue;
         const value2 = entry[key];
         if (typeof value2 !== "string" || value2 === "") fail(`${path2}.${key} must be a non-empty string`);
-        out[key] = value2;
+        out[key] = limited(value2, `${path2}.${key}`);
       }
       return out;
     });
@@ -42679,6 +42692,9 @@ function isCheckedDoc(path2, config) {
   const { include, exclude } = matchersFor(config);
   if (!isIndexedDoc(path2) && !include(path2)) return false;
   return !defaultExcluded(path2) && !exclude(path2);
+}
+function isExcludedByConfig(path2, config) {
+  return matchersFor(config).exclude(path2);
 }
 function factName(ruleId, fact) {
   switch (ruleId) {
@@ -42768,12 +42784,49 @@ function suppressedLines(lines) {
   });
   return suppressed;
 }
-var HISTORICAL = /\b(?:renamed\s+from|formerly|deprecated|removed\s+in|previously)\b/i;
+var HISTORICAL = new RegExp(
+  [
+    "renamed\\s+from",
+    "formerly",
+    "deprecated",
+    "removed\\s+in",
+    "previously",
+    // The PR's own docs saying where the thing went: "moved to", "was removed", "replaced by", "no longer"...
+    "moved\\s+(?:from|to)",
+    "renamed\\s+to",
+    "(?:was|were|has\\s+been|have\\s+been)\\s+(?:removed|deleted|renamed|moved|replaced)",
+    "replaced\\s+(?:by|with)",
+    "no\\s+longer",
+    "used\\s+to\\s+be",
+    "now\\s+(?:lives|called|named)"
+  ].map((alternative) => `\\b(?:${alternative})\\b`).join("|"),
+  "i"
+);
 function hasHistoricalContext(line) {
   return HISTORICAL.test(line);
 }
 
 // src/core/collect.ts
+var MAX_DOC_CHARS = 1e6;
+var MAX_NESTING_PREFIX = 200;
+var NESTING_PREFIX = new RegExp(`^[ \\t>]{${MAX_NESTING_PREFIX + 1},}`, "m");
+function indexSafely(path2, content3, repo, warn) {
+  if (content3.length > MAX_DOC_CHARS) {
+    warn(`${path2}: skipped, larger than 1 MB`);
+    return void 0;
+  }
+  if (NESTING_PREFIX.test(content3)) {
+    warn(`${path2}: skipped, nesting too deep`);
+    return void 0;
+  }
+  try {
+    return indexMarkdown(path2, content3, repo ? { repo } : void 0);
+  } catch (error2) {
+    if (!(error2 instanceof RangeError)) throw error2;
+    warn(`${path2}: skipped, nesting too deep`);
+    return void 0;
+  }
+}
 function compareStrings(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -42789,13 +42842,16 @@ async function collectFindings(head, headFiles, options) {
   for (const path2 of docPaths) {
     const content3 = contents.get(path2);
     if (content3 === void 0) continue;
+    const refs = indexSafely(path2, content3, repo, options.warn ?? (() => void 0));
+    if (refs === void 0) continue;
     const suppressed = suppressedLines(splitLines(content3));
-    for (const ref of indexMarkdown(path2, content3, repo ? { repo } : void 0)) {
+    for (const ref of refs) {
       if (ref.shadow || suppressed.has(ref.line) || hasHistoricalContext(ref.contextLine)) continue;
       for (const rule of rules) {
         if (!rule.kinds.includes(ref.kind)) continue;
         const drift = evaluate(rule, ref, { path: path2 });
         if (drift === void 0) continue;
+        if (drift.suggestion !== void 0 && ref.contextLine.includes(drift.suggestion)) continue;
         const key = JSON.stringify([rule.id, path2, ref.line, ref.col, drift.fact]);
         if (findings.has(key)) continue;
         const finding = {
@@ -42818,6 +42874,9 @@ async function collectFindings(head, headFiles, options) {
 }
 
 // src/core/check.ts
+function touchesConfig(changes) {
+  return changes.added.includes(CONFIG_PATH) || changes.modified.includes(CONFIG_PATH) || changes.renamed.some((r) => r.to === CONFIG_PATH);
+}
 function disabledRuleIds(config) {
   const keys = Object.keys(CHECK_RULE_IDS);
   return new Set(keys.filter((key) => !config.checks[key]).map((key) => CHECK_RULE_IDS[key]));
@@ -42835,6 +42894,7 @@ async function runCheck(base, head, changes, options) {
     baseFiles,
     headFiles,
     hunks,
+    ...config ? { excludedPaths: (path2) => isExcludedByConfig(path2, config) } : {},
     warn: (message) => {
       if (!warnings.includes(message)) warnings.push(message);
     }
@@ -42845,7 +42905,8 @@ async function runCheck(base, head, changes, options) {
     evaluate: (rule, ref, doc) => rule.check(ref, doc),
     ...repo ? { repo } : {},
     ...config ? { config } : {},
-    ...options.docFilter ? { docFilter: options.docFilter } : {}
+    ...options.docFilter ? { docFilter: options.docFilter } : {},
+    warn: ctx.warn
   });
   return {
     schemaVersion: FINDING_SCHEMA_VERSION,
@@ -42854,8 +42915,15 @@ async function runCheck(base, head, changes, options) {
     head: head.commit,
     findings,
     warnings,
-    failOn: config?.failOn ?? "none"
+    failOn: config?.failOn ?? "none",
+    ...touchesConfig(changes) ? { configChanged: true } : {}
   };
+}
+
+// src/core/message.ts
+var LOOKALIKE_BACKTICK = "\u02CB";
+function codeName(value2) {
+  return `\`${value2.replace(/`/g, LOOKALIKE_BACKTICK)}\``;
 }
 
 // src/core/rules/packages.ts
@@ -42918,11 +42986,21 @@ function packageSet(packages) {
     }
   };
 }
-function isPackageJson(entry) {
-  return entry.kind === "file" && posix.basename(entry.path) === "package.json" && !entry.path.split("/").includes("node_modules");
+var INVENTORY_EXCLUDED_SEGMENTS = /* @__PURE__ */ new Set([
+  "fixtures",
+  "__fixtures__",
+  "testdata",
+  "node_modules",
+  "vendor"
+]);
+function inInventory(ctx, path2) {
+  return !path2.split("/").some((segment) => INVENTORY_EXCLUDED_SEGMENTS.has(segment)) && !ctx.excludedPaths?.(path2);
 }
-async function readSide(snapshot, files) {
-  const paths = files.filter(isPackageJson).map((e) => e.path);
+function isPackageJson(entry) {
+  return entry.kind === "file" && posix.basename(entry.path) === "package.json";
+}
+async function readSide(snapshot, files, keep) {
+  const paths = files.filter((e) => isPackageJson(e) && keep(e.path)).map((e) => e.path);
   const contents = await snapshot.readFiles(paths);
   const side = { parsed: /* @__PURE__ */ new Map(), invalid: /* @__PURE__ */ new Map() };
   for (const path2 of paths) {
@@ -42937,9 +43015,16 @@ function loadPackages(ctx) {
   let loaded = cache.get(ctx);
   if (loaded === void 0) {
     loaded = (async () => {
-      const [base, head] = await Promise.all([readSide(ctx.base, ctx.baseFiles), readSide(ctx.head, ctx.headFiles)]);
+      const keep = (path2) => inInventory(ctx, path2);
+      const [base, head] = await Promise.all([
+        readSide(ctx.base, ctx.baseFiles, keep),
+        readSide(ctx.head, ctx.headFiles, keep)
+      ]);
       const invalid = /* @__PURE__ */ new Set([...base.invalid.keys(), ...head.invalid.keys()]);
+      const { added, modified, renamed } = ctx.changes;
+      const touched = /* @__PURE__ */ new Set([...added, ...modified, ...renamed.map((r) => r.to)]);
       for (const [path2, reason] of [...base.invalid, ...head.invalid]) {
+        if (ctx.base !== ctx.head && !touched.has(path2)) continue;
         ctx.warn(`${path2}: invalid package.json (${reason}); its scripts and bins are ignored`);
       }
       const usable = (side) => packageSet([...side.parsed.values()].filter((p) => !invalid.has(p.path)));
@@ -42985,10 +43070,10 @@ function binRule() {
       if (state === void 0) throw new Error("binRule: prepare() must run before check()");
       const name = ref.normalized;
       if (!state.base.has(name) || state.head.has(name)) return void 0;
-      const drift = { fact: `bin:${name}`, message: `bin \`${name}\` was removed in this change` };
+      const drift = { fact: `bin:${name}`, message: `bin ${codeName(name)} was removed in this change` };
       const newName = renamedTo(state.packages, name);
       if (newName !== void 0) {
-        drift.message = `bin \`${name}\` was renamed to \`${newName}\` in this change`;
+        drift.message = `bin ${codeName(name)} was renamed to ${codeName(newName)} in this change`;
         drift.suggestion = newName;
       }
       return drift;
@@ -42998,6 +43083,49 @@ function binRule() {
 
 // src/core/rules/env.ts
 var MAX_CANDIDATES = 200;
+var SDK_ENV_PREFIXES = [
+  "OPENAI_",
+  "ANTHROPIC_",
+  "AWS_",
+  "AZURE_",
+  "GOOGLE_",
+  "GCP_",
+  "SENTRY_",
+  "VERCEL_",
+  "NETLIFY_",
+  "SUPABASE_",
+  "STRIPE_",
+  "HF_",
+  "HUGGINGFACE_",
+  "GEMINI_",
+  "MISTRAL_",
+  "COHERE_",
+  "GROQ_",
+  "LANGCHAIN_",
+  "LANGSMITH_",
+  "OTEL_",
+  "DD_",
+  "NEW_RELIC_",
+  "DOCKER_",
+  "KUBE",
+  "TF_"
+];
+var SDK_ENV_NAMES = [
+  "PGHOST",
+  "PGUSER",
+  "PGPASSWORD",
+  "PGDATABASE",
+  "PGPORT",
+  "DATABASE_URL",
+  "REDIS_URL",
+  "PORT",
+  "HOST",
+  "LOG_LEVEL",
+  "DEBUG"
+];
+function isSdkEnv(name) {
+  return SDK_ENV_NAMES.includes(name) || SDK_ENV_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
 var NAME = "[A-Za-z_][A-Za-z0-9_]*";
 var QUOTED = `\\s*['"\`](${NAME})['"\`]\\s*`;
 var ACCESSORS = [
@@ -43051,6 +43179,7 @@ function envRule() {
     async prepare(ctx) {
       const proposals = /* @__PURE__ */ new Map();
       for (const hunk of ctx.hunks) {
+        if (isDocFile(hunk.path)) continue;
         const dotenv = DOTENV_TEMPLATES.has(basename(hunk.path));
         const removed = namesOf(hunk.removed, dotenv);
         const added = namesOf(hunk.added, dotenv);
@@ -43058,7 +43187,7 @@ function envRule() {
         const [replacement] = added;
         const suggestion = removed.length === 1 && added.length === 1 && only !== replacement ? replacement : void 0;
         for (const name of removed) {
-          if (isWellKnownEnv(name)) continue;
+          if (isWellKnownEnv(name) || isSdkEnv(name)) continue;
           const list3 = proposals.get(name) ?? [];
           list3.push(removed.length === 1 ? suggestion : void 0);
           proposals.set(name, list3);
@@ -43074,7 +43203,9 @@ function envRule() {
       }
       const result = /* @__PURE__ */ new Map();
       for (const name of candidates) {
-        const hits = await ctx.head.grep(name);
+        const baseHits = await ctx.base.grep(name);
+        if (!baseHits.some((hit) => !isDocFile(hit.path))) continue;
+        const hits = await ctx.head.grep(name, { ignoreCase: true });
         if (hits.some((hit) => !isDocFile(hit.path))) continue;
         const list3 = proposals.get(name) ?? [];
         const first = list3[0];
@@ -43100,14 +43231,25 @@ import { posix as posix2 } from "node:path";
 var DIRECTIVE2 = /^(?:-?include|sinclude|ifn?eq|ifn?def|else|endif|export|unexport|vpath|undefine|override|private)\b/;
 var DEFINE = /^(?:override\s+)?define\b/;
 var ENDEF = /^endef\b/;
+function continues(line) {
+  let backslashes = 0;
+  for (let i = line.length - 1; i >= 0 && line[i] === "\\"; i--) backslashes++;
+  return backslashes % 2 === 1;
+}
 function logicalLines(text5) {
   const physical = text5.split(/\r?\n/);
   const result = [];
   for (let i = 0; i < physical.length; i++) {
     let line = physical[i];
-    while (/(?:^|[^\\])(?:\\\\)*\\$/.test(line) && i + 1 < physical.length) {
-      i++;
-      line = `${line.slice(0, -1).trimEnd()} ${physical[i].replace(/^\s+/, "")}`;
+    if (continues(line) && i + 1 < physical.length) {
+      const parts = [];
+      while (continues(line) && i + 1 < physical.length) {
+        parts.push(line.slice(0, -1).trimEnd());
+        i++;
+        line = physical[i].replace(/^\s+/, "");
+      }
+      parts.push(line);
+      line = parts.join(" ");
     }
     result.push(line);
   }
@@ -43185,28 +43327,85 @@ function includedFiles(text5) {
     return match?.[1] === void 0 ? [] : match[1].split(/\s+/).filter((name) => name !== "");
   });
 }
+var DYNAMIC_CALL = /\$[({]\s*(?:eval|foreach)\b/;
+function definesDynamically(text5) {
+  let defineDepth = 0;
+  for (const line of logicalLines(text5)) {
+    const trimmed = line.trim();
+    if (defineDepth > 0) {
+      if (ENDEF.test(trimmed)) defineDepth--;
+      else if (DEFINE.test(trimmed)) defineDepth++;
+      continue;
+    }
+    if (line.startsWith("	")) continue;
+    const code3 = stripComment(line).trim();
+    if (code3 === "") continue;
+    if (DEFINE.test(code3)) {
+      defineDepth = 1;
+      continue;
+    }
+    if (DIRECTIVE2.test(code3)) continue;
+    if (DYNAMIC_CALL.test(code3)) return true;
+    const colon = ruleColon(code3);
+    if (colon >= 0 && /\$[({]/.test(code3.slice(0, colon))) return true;
+  }
+  return false;
+}
+var NOT_MAKEFILE_EXTENSIONS = /* @__PURE__ */ new Set(["md", "mdx", "txt", "rst", "bak", "orig", "patch", "diff", "swp"]);
 function isMakefile(entry) {
   if (entry.kind !== "file") return false;
   const base = posix2.basename(entry.path);
-  return base === "Makefile" || base === "GNUmakefile" || base === "makefile" || base.endsWith(".mk");
+  if (base === "Makefile" || base === "GNUmakefile" || base === "makefile" || base.endsWith(".mk")) return true;
+  const match = /^(?:GNUmakefile|[Mm]akefile)\.(.+)$/.exec(base);
+  return match !== null && !NOT_MAKEFILE_EXTENSIONS.has(match[1].toLowerCase());
 }
-async function readMakefiles(snapshot, files) {
-  const paths = files.filter(isMakefile).map((e) => e.path);
-  const contents = await snapshot.readFiles(paths);
-  return paths.map((path2) => ({
-    path: path2,
-    targets: new Map(parseMakefile(contents.get(path2) ?? "").map((t) => [t.name, t.recipe])),
-    includes: includedFiles(contents.get(path2) ?? "")
-  }));
+function resolveInclude(paths, file, name) {
+  if (/[$*?[\]{}%]/.test(name)) return void 0;
+  const dir = posix2.dirname(file);
+  for (const candidate of [dir === "." ? name : posix2.join(dir, name), name]) {
+    const normalized = posix2.normalize(candidate).replace(/^(?:\.\/)+/, "");
+    if (paths.has(normalized)) return normalized;
+  }
+  return void 0;
+}
+async function readMakefiles(snapshot, files, skip) {
+  const known = new Set(files.filter((e) => e.kind === "file").map((e) => e.path));
+  const seen = new Set(files.filter((e) => isMakefile(e) && !skip(e.path)).map((e) => e.path));
+  let queue = [...seen];
+  const result = [];
+  while (queue.length > 0) {
+    const contents = await snapshot.readFiles(queue);
+    const next = [];
+    for (const path2 of queue) {
+      const text5 = contents.get(path2) ?? "";
+      const includes = includedFiles(text5);
+      result.push({
+        path: path2,
+        targets: new Map(parseMakefile(text5).map((t) => [t.name, t.recipe])),
+        includes,
+        dynamic: definesDynamically(text5)
+      });
+      for (const name of includes) {
+        const found = resolveInclude(known, path2, name);
+        if (found !== void 0 && !seen.has(found) && !skip(found)) {
+          seen.add(found);
+          next.push(found);
+        }
+      }
+    }
+    queue = next;
+  }
+  return result.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 }
 function inScope(files, dir) {
   return dir === "" ? [...files] : files.filter((f) => f.path.startsWith(`${dir}/`));
 }
 function hasUnreadInclude(file, makefiles) {
-  return file.includes.some((name) => {
-    const wanted = posix2.normalize(name).replace(/^(?:\.\/)+/, "");
-    return !makefiles.some((m) => m.path === wanted || m.path.endsWith(`/${wanted}`));
-  });
+  const read = new Set(makefiles.map((m) => m.path));
+  return file.includes.some((name) => resolveInclude(read, file.path, name) === void 0);
+}
+function isUnsure(scope, makefiles) {
+  return scope.some((f) => f.dynamic || hasUnreadInclude(f, makefiles));
 }
 function buildableFile(paths, dir, name) {
   const prefix = dir === "" ? name : `${dir}/${name}`;
@@ -43229,9 +43428,10 @@ function makeTargetRule() {
     id: "make-target",
     kinds: ["make-target"],
     async prepare(ctx) {
+      const skip = (path2) => !inInventory(ctx, path2);
       const [base, head] = await Promise.all([
-        readMakefiles(ctx.base, ctx.baseFiles),
-        readMakefiles(ctx.head, ctx.headFiles)
+        readMakefiles(ctx.base, ctx.baseFiles, skip),
+        readMakefiles(ctx.head, ctx.headFiles, skip)
       ]);
       state = { base, head, headPaths: new Set(ctx.headFiles.map((e) => e.path)) };
     },
@@ -43243,11 +43443,13 @@ function makeTargetRule() {
       const name = ref.normalized;
       const defined = inScope(state.base, dir).find((f) => f.targets.has(name));
       if (defined === void 0) return void 0;
-      if (inScope(state.head, dir).some((f) => f.targets.has(name))) return void 0;
-      const drift = { fact: `make:${name}`, message: `Make target \`${name}\` was removed in this change` };
+      const headScope = inScope(state.head, dir);
+      if (headScope.some((f) => f.targets.has(name))) return void 0;
+      if (isUnsure(headScope, state.head)) return void 0;
+      const drift = { fact: `make:${name}`, message: `Make target ${codeName(name)} was removed in this change` };
       const newName = renamedTo2(defined, state.head.find((f) => f.path === defined.path), name);
       if (newName !== void 0) {
-        drift.message = `Make target \`${name}\` was renamed to \`${newName}\` in this change`;
+        drift.message = `Make target ${codeName(name)} was renamed to ${codeName(newName)} in this change`;
         drift.suggestion = newName;
       }
       return drift;
@@ -43262,9 +43464,9 @@ function makeTargetRule() {
       const { head: makefiles, headPaths } = state;
       const scope = inScope(makefiles, dir);
       if (scope.length === 0 || scope.some((f) => f.targets.has(name))) return void 0;
-      if (scope.some((f) => hasUnreadInclude(f, makefiles))) return void 0;
+      if (isUnsure(scope, makefiles)) return void 0;
       if (buildableFile(headPaths, dir, name)) return void 0;
-      return { fact: `make:${name}`, message: `Make target \`${name}\` does not exist at this commit` };
+      return { fact: `make:${name}`, message: `Make target ${codeName(name)} does not exist at this commit` };
     }
   };
 }
@@ -43340,9 +43542,31 @@ function movedTo(state, path2) {
   }
   return void 0;
 }
+var LINK_SOURCES = /* @__PURE__ */ new Set(["link", "image", "definition"]);
+function encodeLinkPath(path2) {
+  return path2.split("/").map((segment) => encodeURIComponent(segment).replace(/[()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join("/");
+}
+function rawDestination(ref) {
+  const token = ref.contextLine.slice(ref.col - 1);
+  const raw = ref.contextLine[ref.col - 2] === "<" ? /^[^>]*/.exec(token) : /^[^\s)]*/.exec(token);
+  return raw?.[0];
+}
+function suffixOf(ref, raw) {
+  if (raw !== void 0) {
+    const cut = raw.search(/[?#]/);
+    return cut >= 0 ? raw.slice(cut) : "";
+  }
+  let rest = ref.contextLine.slice(ref.col - 1);
+  while (rest.startsWith("./")) rest = rest.slice(2);
+  if (!rest.startsWith(ref.normalized)) return "";
+  return /^(?::\d+(?::\d+)?)?(?:#[\w.:/-]*[\w/-])?/.exec(rest.slice(ref.normalized.length))?.[0] ?? "";
+}
 function styled(ref, origin, newPath) {
   const token = ref.contextLine.slice(ref.col - 1);
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(token)) return void 0;
+  const isLink = LINK_SOURCES.has(ref.source);
+  const raw = isLink ? rawDestination(ref) : void 0;
+  if (raw !== void 0 && raw.includes("(")) return void 0;
   let text5;
   if (ref.normalized.startsWith("/")) {
     text5 = `/${newPath}`;
@@ -43351,7 +43575,12 @@ function styled(ref, origin, newPath) {
     if (text5 === "") return void 0;
     if (token.startsWith("./") && !text5.startsWith("../")) text5 = `./${text5}`;
   }
-  return ref.normalized.endsWith("/") && !text5.endsWith("/") ? `${text5}/` : text5;
+  if (ref.normalized.endsWith("/") && !text5.endsWith("/")) text5 = `${text5}/`;
+  if (isLink) {
+    const path2 = raw?.replace(/[?#].*$/, "") ?? "";
+    if (/%[0-9A-Fa-f]{2}/.test(path2) || /[\s()#?%<>]/.test(text5)) text5 = encodeLinkPath(text5);
+  }
+  return `${text5}${suffixOf(ref, raw)}`;
 }
 async function loadGitignores(ctx) {
   const paths = ctx.headFiles.filter((e) => e.kind === "file" && posix3.basename(e.path) === ".gitignore").map((e) => e.path);
@@ -43375,7 +43604,7 @@ function ignoreMatcher(gitignores) {
   };
 }
 function describeChange2(fact, movedTo2) {
-  return movedTo2 === void 0 ? `\`${fact}\` was removed in this change` : `\`${fact}\` was renamed to \`${movedTo2}\` in this change`;
+  return movedTo2 === void 0 ? `${codeName(fact)} was removed in this change` : `${codeName(fact)} was renamed to ${codeName(movedTo2)} in this change`;
 }
 function pathRule() {
   let state;
@@ -43397,6 +43626,10 @@ function pathRule() {
       if (s === void 0) throw new Error("pathRule: prepare() must run before check()");
       const matched = candidatesFor(s.base, doc.path, ref.normalized).find((c) => exists(s.base, c.path));
       if (matched === void 0) return void 0;
+      if (LINK_SOURCES.has(ref.source) && !ref.normalized.startsWith("/")) {
+        const docRelative = clean(posix3.join(posix3.dirname(doc.path), ref.normalized));
+        if (matched.path !== docRelative) return void 0;
+      }
       const inHead = [
         ...candidatesFor(s.head, doc.path, ref.normalized),
         ...candidatesFor(s.base, doc.path, ref.normalized)
@@ -43425,7 +43658,7 @@ function pathRule() {
         const hasParent = candidates.some((c) => posix3.dirname(c.path) === "." || exists(s.head, posix3.dirname(c.path)));
         if (!hasParent) return void 0;
       }
-      return { fact: first.path, message: `\`${ref.normalized}\` does not exist at this commit` };
+      return { fact: first.path, message: `${codeName(ref.normalized)} does not exist at this commit` };
     }
   };
 }
@@ -43449,7 +43682,8 @@ var EXPLICIT_RUN = /(?:^|[\s`'"(])(?:npm|pnpm)\s(?:\S+\s)*?(?:run|run-script)\s(
 function isExplicitRun(ref) {
   const manager = ref.context?.packageManager;
   if (manager !== "npm" && manager !== "pnpm" || ref.contextLine.includes("--if-present")) return false;
-  const before = ref.contextLine.slice(0, ref.col - 1);
+  const open2 = ref.source === "inline-code" ? ref.contextLine.lastIndexOf("`", ref.col - 2) : -1;
+  const before = ref.contextLine.slice(open2 + 1, ref.col - 1);
   const command = before.split(/&&|\|\||[;|]/).pop() ?? "";
   return EXPLICIT_RUN.test(command);
 }
@@ -43475,7 +43709,7 @@ function npmScriptRule() {
     },
     check(ref, doc) {
       if (packages === void 0) throw new Error("npmScriptRule: prepare() must run before check()");
-      if (!locatable(ref, doc.path)) return void 0;
+      if (!locatable(ref, doc.path) || ref.context?.allWorkspaces) return void 0;
       const name = ref.normalized;
       const before = resolveIn(packages.base, ref, doc.path);
       if (before === void 0 || !before.scripts.has(name)) return void 0;
@@ -43484,24 +43718,24 @@ function npmScriptRule() {
       if (after?.path !== before.path && packages.head.at(before.dir)?.scripts.has(name)) return void 0;
       const drift = {
         fact: `${before.path}#${name}`,
-        message: `npm script \`${name}\` (package \`${labelOf(before)}\`) was removed in this change`
+        message: `npm script ${codeName(name)} (package ${codeName(labelOf(before))}) was removed in this change`
       };
       const newName = renamedTo3(before, after, name);
       if (newName !== void 0) {
-        drift.message = `npm script \`${name}\` (package \`${labelOf(before)}\`) was renamed to \`${newName}\` in this change`;
+        drift.message = `npm script ${codeName(name)} (package ${codeName(labelOf(before))}) was renamed to ${codeName(newName)} in this change`;
         drift.suggestion = newName;
       }
       return drift;
     },
     scan(ref, doc) {
       if (packages === void 0) throw new Error("npmScriptRule: prepare() must run before scan()");
-      if (!isExplicitRun(ref) || !locatable(ref, doc.path)) return void 0;
+      if (!isExplicitRun(ref) || !locatable(ref, doc.path) || ref.context?.allWorkspaces) return void 0;
       const name = ref.normalized;
       const target = resolveIn(packages.head, ref, doc.path);
       if (target === void 0 || target.scripts.has(name)) return void 0;
       return {
         fact: `${target.path}#${name}`,
-        message: `npm script \`${name}\` (package \`${labelOf(target)}\`) does not exist at this commit`
+        message: `npm script ${codeName(name)} (package ${codeName(labelOf(target))}) does not exist at this commit`
       };
     }
   };
@@ -43761,6 +43995,7 @@ async function openSnapshot(repoDir, rev, options = {}) {
           "-I",
           "--no-color",
           "--no-recurse-submodules",
+          ...grepOptions.ignoreCase === true ? ["-i"] : [],
           "-e",
           word,
           commit,
@@ -43970,6 +44205,8 @@ async function computeHunks(repoDir, base, head, options = {}) {
     [
       "-c",
       `diff.renameLimit=${DEFAULT_RENAME_LIMIT}`,
+      "-c",
+      "diff.interHunkContext=0",
       "diff",
       "-U0",
       "-M",
@@ -44096,16 +44333,18 @@ var MAX_COMMENT_CHARS = 6e4;
 var MAX_SUMMARY_CHARS = 9e5;
 var PROJECT_URL = "https://github.com/alessiogarifo92/drift-ci";
 var ZERO_WIDTH_SPACE = "\u200B";
+var CONFIG_NOTE = "This pull request changes .drift-ci.yml; the check used the new configuration.";
+var MARKDOWN_FILE = /\.(?:md|mdx|markdown|mdc)$/i;
 function permalink(ctx, file, line) {
   const path2 = file.split("/").map((segment) => encodeURIComponent(segment).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join("/");
-  return `${ctx.serverUrl}/${encodeURIComponent(ctx.owner)}/${encodeURIComponent(ctx.repo)}/blob/${ctx.headSha}/${path2}#L${line}`;
+  return `${ctx.serverUrl}/${encodeURIComponent(ctx.owner)}/${encodeURIComponent(ctx.repo)}/blob/${ctx.headSha}/${path2}${MARKDOWN_FILE.test(file) ? "?plain=1" : ""}#L${line}`;
 }
 var HTML_ESCAPES = { "<": "&lt;", ">": "&gt;", "&": "&amp;" };
 function neutralizeText(text5) {
   return text5.replace(/\r\n|\r|\n/g, " ").replace(/[\\`*_~[\]|<>&@]/g, (char) => {
     if (char === "@") return `@${ZERO_WIDTH_SPACE}`;
     return HTML_ESCAPES[char] ?? `\\${char}`;
-  });
+  }).replace(/:\/\//g, `://${ZERO_WIDTH_SPACE}`).replace(/\bwww\./gi, (match) => `${match}${ZERO_WIDTH_SPACE}`).replace(/(?<=[\w/])#|#(?=\d)/g, `${ZERO_WIDTH_SPACE}#`).replace(/\b(GH)(?=-\d)/gi, `$1${ZERO_WIDTH_SPACE}`);
 }
 function codeSpan(text5) {
   const content3 = text5.replace(/\r\n|\r|\n/g, " ");
@@ -44152,9 +44391,14 @@ ${overflow(items.length - shown2)}${footer}`;
   while (shown < items.length && assemble(shown + 1).length <= maxChars) shown++;
   return assemble(shown);
 }
+function configNote(result) {
+  return result.configChanged === true ? `> ${CONFIG_NOTE}
+
+` : "";
+}
 function renderComment(result, ctx, options = {}) {
   const header = `${COMMENT_MARKER}
-${heading2(result.findings.length)}
+${configNote(result)}${heading2(result.findings.length)}
 
 ${INTRO(ctx)}
 
@@ -44165,15 +44409,17 @@ ${INTRO(ctx)}
   const items = result.findings.map((finding) => renderFinding(finding, ctx));
   return renderCapped(header, items, footer, options.maxChars ?? MAX_COMMENT_CHARS);
 }
-function renderNoDriftComment(ctx) {
+function renderNoDriftComment(ctx, result) {
   return `${COMMENT_MARKER}
-### Drift CI: no drift found
+${result ? configNote(result) : ""}### Drift CI: no drift found
 
 No drift found in \`${shortSha(ctx)}\`: no doc references to things this pull request renamed or removed.
 `;
 }
 function renderSummary(result, ctx, notes) {
   const parts = [];
+  if (result.configChanged === true) parts.push(`> ${CONFIG_NOTE}
+`);
   if (result.findings.length === 0) {
     parts.push(`### Drift CI: no drift found
 
@@ -44199,14 +44445,22 @@ ${result.warnings.map((w) => `- ${neutralizeText(w)}`).join("\n")}
 }
 
 // src/action/comment.ts
-function isStickyComment(comment) {
-  return comment.user?.type === "Bot" && comment.body.split("\n", 1)[0]?.trimEnd() === COMMENT_MARKER;
+var ACTIONS_BOT = "github-actions[bot]";
+function isStickyComment(comment, viewer) {
+  const login = comment.user?.login;
+  const ours = login === ACTIONS_BOT || viewer !== void 0 && login === viewer;
+  return ours && comment.body.split("\n", 1)[0]?.trimEnd() === COMMENT_MARKER;
 }
 async function upsertStickyComment(client, pr, result, ctx) {
-  const existing = (await client.listIssueComments(pr)).find(isStickyComment);
+  const comments = await client.listIssueComments(pr);
+  let existing = comments.find((c) => isStickyComment(c, void 0));
+  if (existing === void 0) {
+    const viewer = await client.viewerLogin();
+    if (viewer !== void 0) existing = comments.find((c) => isStickyComment(c, viewer));
+  }
   const hasFindings = result.findings.length > 0;
   if (!existing && !hasFindings) return "none";
-  const body = hasFindings ? renderComment(result, ctx) : renderNoDriftComment(ctx);
+  const body = hasFindings ? renderComment(result, ctx) : renderNoDriftComment(ctx, result);
   if (!existing) {
     await client.createComment(pr, body);
     return "created";
@@ -44805,7 +45059,24 @@ function createGitHubClient(options) {
     if (!response.ok) throw new GitHubApiError(response.status, apiMessage(text5) ?? response.statusText);
     return text5 === "" ? void 0 : JSON.parse(text5);
   }
+  let viewer;
   return {
+    viewerLogin() {
+      viewer ??= (async () => {
+        try {
+          const data = await request("GET", `${apiUrl}/user`);
+          const login = typeof data === "object" && data !== null ? data["login"] : void 0;
+          return typeof login === "string" && login !== "" ? login : void 0;
+        } catch (error2) {
+          if (error2 instanceof GitHubApiError && [401, 403, 404].includes(error2.status)) return void 0;
+          throw error2;
+        }
+      })();
+      viewer.catch(() => {
+        viewer = void 0;
+      });
+      return viewer;
+    },
     async listIssueComments(pr) {
       const comments = [];
       for (let page = 1; ; page++) {
@@ -44884,7 +45155,7 @@ async function run(core, deps) {
       ...env.defaultBranch ? { defaultBranch: env.defaultBranch } : {}
     }
   });
-  for (const warning2 of result.warnings) core.warning(warning2);
+  for (const warning2 of result.warnings) core.info(`warning: ${warning2}`);
   emitAnnotations(core, result.findings);
   const ctx = { serverUrl: env.serverUrl, owner: env.owner, repo: env.repo, headSha: pr.headSha };
   const notes = [];

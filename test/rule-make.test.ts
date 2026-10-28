@@ -102,6 +102,27 @@ describe('parseMakefile: which lines define targets', () => {
 const rule = makeTargetRule;
 const doc = (...l: string[]) => ['```sh', ...l, '```'].join('\n');
 
+describe('parseMakefile: hostile input', () => {
+  it('joins tens of thousands of continuation lines in linear time', () => {
+    const text = `build: ${'dep \\\n'.repeat(60_000)}last\n${T}run\nlint:\n`;
+    const started = performance.now();
+    expect(names(text)).toEqual(['build', 'lint']);
+    expect(performance.now() - started).toBeLessThan(1500);
+  });
+
+  it('counts the backslashes at the end of a very long run of them in linear time', () => {
+    const text = `a:\n${T}x ${'\\'.repeat(200_000)}\nb:\n`;
+    const started = performance.now();
+    expect(names(text)).toEqual(['a', 'b']);
+    expect(performance.now() - started).toBeLessThan(1500);
+  });
+
+  it('keeps the odd/even rule: an even run of backslashes does not continue the line', () => {
+    expect(names('a: b \\\\\nc:\n')).toEqual(['a', 'c']);
+    expect(names('a: b \\\\\\\n  c:\n')).toEqual(['a']); // three: continues
+  });
+});
+
 describe('makeTargetRule: what is drift', () => {
   it('flags a removed target, without suggestion', async () => {
     const [finding] = await findingsOf(rule(), {
@@ -207,6 +228,122 @@ describe('makeTargetRule: what is drift', () => {
         head: { Makefile: '', 'README.md': doc('make build') },
       }),
     ).toEqual([]);
+  });
+});
+
+describe('makeTargetRule: targets this rule cannot see in head', () => {
+  const readme = doc('make lint');
+  const base = { Makefile: `lint:\n${T}run\nbuild:\n`, 'README.md': readme };
+  const flagged = (head: Files) => briefOf(rule(), { base, head: { 'README.md': readme, ...head } });
+
+  it('reads Makefile.common-style files, so a target moved there is not flagged', async () => {
+    expect(await flagged({ Makefile: 'include Makefile.common\nbuild:\n', 'Makefile.common': `lint:\n${T}run\n` })).toEqual([]);
+    expect(await flagged({ Makefile: 'include Makefile.inc\nbuild:\n', 'Makefile.inc': 'lint:\n' })).toEqual([]);
+  });
+
+  it('reads a file named by an include directive whatever its name', async () => {
+    expect(await flagged({ Makefile: 'include build/rules.inc\n', 'build/rules.inc': 'lint:\n' })).toEqual([]);
+    expect(await flagged({ Makefile: '-include build/rules.inc\n', 'build/rules.inc': 'lint:\n' })).toEqual([]);
+    expect(await flagged({ Makefile: 'sinclude rules.inc\n', 'rules.inc': 'lint:\n' })).toEqual([]);
+  });
+
+  it('follows includes of included files', async () => {
+    expect(
+      await flagged({ Makefile: 'include a.inc\n', 'a.inc': 'include sub/b.inc\n', 'sub/b.inc': 'lint:\n' }),
+    ).toEqual([]);
+  });
+
+  it('still flags when the included file does not define the target', async () => {
+    expect(await flagged({ Makefile: 'include Makefile.common\n', 'Makefile.common': 'other:\n' })).toEqual([
+      'make:lint -> none',
+    ]);
+  });
+
+  it.each([
+    ['an include it cannot find', 'include missing.mk\n'],
+    ['an optional include it cannot find', '-include local.mk\n'],
+    ['an include built from a variable', 'include $(DIR)/rules.mk\n'],
+    ['an include with a wildcard', 'include mk/*.mk\n'],
+  ])('does not flag when a head makefile has %s', async (_label, include) => {
+    expect(await flagged({ Makefile: `${include}build:\n` })).toEqual([]);
+  });
+
+  it.each([
+    ['a target list built from a variable', 'GOCMDS := build lint\n$(GOCMDS):\n\tgo $@\n'],
+    ['a brace variable target', '${CMDS}:\n\ttrue\n'],
+    ['$(eval ...)', '$(eval $(call mk,lint))\n'],
+    ['$(foreach ...)', '$(foreach t,lint build,$(eval $(call rule,$(t))))\n'],
+  ])('does not flag when a head makefile defines targets through %s', async (_label, text) => {
+    expect(await flagged({ Makefile: text })).toEqual([]);
+  });
+
+  it('flags as before when the head makefiles are plain', async () => {
+    expect(await flagged({ Makefile: 'build:\n' })).toEqual(['make:lint -> none']);
+  });
+
+  it('only looks at makefiles in the reference scope', async () => {
+    const scoped = doc('make -C tools lint');
+    const result = await briefOf(rule(), {
+      base: { 'tools/Makefile': 'lint:\n', Makefile: 'x:\n', 'README.md': scoped },
+      head: { 'tools/Makefile': 'x:\n', Makefile: 'include nowhere.mk\n', 'README.md': scoped },
+    });
+    expect(result).toEqual(['make:lint -> none']);
+  });
+
+  it('does not treat doc and backup extensions as makefiles', async () => {
+    expect(
+      await briefOf(rule(), {
+        base: { 'Makefile.md': 'lint:\n', 'Makefile.bak': 'lint:\n', 'README.md': readme },
+        head: { 'README.md': readme },
+      }),
+    ).toEqual([]);
+  });
+
+  it('does not suggest a rename when the targets live in another file now', async () => {
+    expect(
+      await flagged({ Makefile: 'include Makefile.common\n', 'Makefile.common': `lint-all:\n${T}run\n` }),
+    ).toEqual(['make:lint -> none']);
+  });
+});
+
+describe('makeTargetRule: fixtures and excluded paths do not count', () => {
+  const readme = doc('make lint');
+
+  it.each(['test/fixtures/a/Makefile', 'x/__fixtures__/Makefile', 'testdata/rules.mk', 'vendor/lib/Makefile', 'node_modules/x/Makefile'])(
+    'does not read %s',
+    async (path) => {
+      // Only the fixture defines `lint` in base: it is not a target of this project.
+      expect(
+        await briefOf(rule(), { base: { [path]: 'lint:\n', 'Makefile': 'build:\n', 'README.md': readme }, head: { Makefile: 'build:\n', 'README.md': readme } }),
+      ).toEqual([]);
+    },
+  );
+
+  it('does not let a fixture makefile keep a target alive in head', async () => {
+    expect(
+      await briefOf(rule(), {
+        base: { Makefile: 'lint:\n', 'README.md': readme },
+        head: { Makefile: 'build:\n', 'test/fixtures/a/Makefile': 'lint:\n', 'README.md': readme },
+      }),
+    ).toEqual(['make:lint -> none']);
+  });
+
+  it('is not made unsure by an include inside a fixture', async () => {
+    expect(
+      await briefOf(rule(), {
+        base: { Makefile: 'lint:\n', 'README.md': readme },
+        head: { Makefile: 'build:\n', 'test/fixtures/a/Makefile': 'include nowhere.mk\n', 'README.md': readme },
+      }),
+    ).toEqual(['make:lint -> none']);
+  });
+
+  it('ignores the makefiles docs.exclude matches', async () => {
+    const result = await briefOf(rule(), {
+      base: { 'gen/Makefile': 'lint:\n', Makefile: 'build:\n', 'README.md': readme },
+      head: { Makefile: 'build:\n', 'README.md': readme },
+      exclude: ['gen/**'],
+    });
+    expect(result).toEqual([]);
   });
 });
 

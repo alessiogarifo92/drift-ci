@@ -1,6 +1,7 @@
 // Bin rule: a command in a head doc has drifted when it was a `bin` of some package.json in base and is a
 // `bin` of none in head (docs/decisions.md, phase 3). Bins are global once installed, so the inventory is
 // the set of bin names across every package.json of the commit.
+import { codeName } from '../message.ts';
 import type { Drift, Rule } from '../rules.ts';
 import { loadPackages, type Packages } from './packages.ts';
 
@@ -44,10 +45,10 @@ export function binRule(): Rule {
       const name = ref.normalized;
       if (!state.base.has(name) || state.head.has(name)) return undefined;
 
-      const drift: Drift = { fact: `bin:${name}`, message: `bin \`${name}\` was removed in this change` };
+      const drift: Drift = { fact: `bin:${name}`, message: `bin ${codeName(name)} was removed in this change` };
       const newName = renamedTo(state.packages, name);
       if (newName !== undefined) {
-        drift.message = `bin \`${name}\` was renamed to \`${newName}\` in this change`;
+        drift.message = `bin ${codeName(name)} was renamed to ${codeName(newName)} in this change`;
         drift.suggestion = newName;
       }
       return drift;

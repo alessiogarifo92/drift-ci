@@ -1,3 +1,5 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { GitError, UnknownRevisionError } from '../src/git/errors.ts';
 import { computeHunks, parseUnifiedDiff } from '../src/git/hunks.ts';
@@ -270,6 +272,22 @@ describe('computeHunks', () => {
       { path: 'added.js', removed: [], added: ['fresh'] },
       { path: 'gone.js', removed: ['process.env.GONE;'], added: [] },
       { path: 'moved/new name.js', removed: ['old'], added: ['new'] },
+    ]);
+  });
+
+  it('ignores a diff.interHunkContext of the repository config: hunks stay separate, without context lines', async () => {
+    const repo = createFixtureRepo('hunks-sample');
+    repos.push(repo);
+    writeFileSync(join(repo.dir, 'multi.txt'), 'a\nb\nc\nd\ne\n');
+    repo.git('add', 'multi.txt');
+    repo.git('commit', '--quiet', '--no-verify', '-m', 'multi');
+    writeFileSync(join(repo.dir, 'multi.txt'), 'A\nb\nc\nD\ne\n');
+    repo.git('commit', '--quiet', '--no-verify', '-am', 'edit');
+    repo.git('config', 'diff.interHunkContext', '10');
+    const hunks = (await computeHunks(repo.dir, 'HEAD^', 'HEAD')).filter((h) => h.path === 'multi.txt');
+    expect(hunks).toEqual([
+      { path: 'multi.txt', removed: ['a'], added: ['A'] },
+      { path: 'multi.txt', removed: ['d'], added: ['D'] },
     ]);
   });
 

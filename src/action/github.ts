@@ -9,6 +9,11 @@ export interface GitHubClient {
   listIssueComments(pr: number): Promise<IssueComment[]>;
   createComment(pr: number, body: string): Promise<void>;
   updateComment(id: number, body: string): Promise<void>;
+  /**
+   * Login of the user the token belongs to (`GET /user`), or `undefined` when the token has none to show:
+   * GITHUB_TOKEN answers 403. Cached per client.
+   */
+  viewerLogin(): Promise<string | undefined>;
 }
 
 /** The API answered with an error status. */
@@ -53,7 +58,26 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     return text === '' ? undefined : (JSON.parse(text) as unknown);
   }
 
+  let viewer: Promise<string | undefined> | undefined;
+
   return {
+    viewerLogin() {
+      viewer ??= (async () => {
+        try {
+          const data = await request('GET', `${apiUrl}/user`);
+          const login = typeof data === 'object' && data !== null ? (data as Record<string, unknown>)['login'] : undefined;
+          return typeof login === 'string' && login !== '' ? login : undefined;
+        } catch (error) {
+          if (error instanceof GitHubApiError && [401, 403, 404].includes(error.status)) return undefined;
+          throw error;
+        }
+      })();
+      // A failure is not remembered: the next call asks again.
+      viewer.catch(() => {
+        viewer = undefined;
+      });
+      return viewer;
+    },
     async listIssueComments(pr) {
       const comments: IssueComment[] = [];
       for (let page = 1; ; page++) {

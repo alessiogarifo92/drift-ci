@@ -144,6 +144,7 @@ export async function openSnapshot(
         repoDir,
         [
           'grep', '-z', '-n', '--no-column', '-F', '-w', '-I', '--no-color', '--no-recurse-submodules',
+          ...(grepOptions.ignoreCase === true ? ['-i'] : []),
           '-e', word, commit,
           ...(pathspecs.length > 0 ? ['--', ...pathspecs] : []),
         ],

@@ -227,6 +227,14 @@ describe('RepoSnapshot.grep', () => {
     expect((await head.grep('foo')).map((h) => h.line)).toEqual([4]);
   });
 
+  it('ignores case with `ignoreCase`, still whole words only', async () => {
+    const repo = repoFor('grep');
+    const head = await openSnapshot(repo.dir, repo.headSha);
+    expect((await head.grep('FOO', { ignoreCase: true })).map((h) => h.line)).toEqual([4]);
+    expect((await head.grep('foo_bar', { ignoreCase: true })).length).toBe((await head.grep('FOO_BAR')).length);
+    expect((await head.grep('foo', { ignoreCase: false })).map((h) => h.line)).toEqual([4]);
+  });
+
   it('treats the word as a fixed string, not a regular expression', async () => {
     const repo = repoFor('grep');
     const head = await openSnapshot(repo.dir, repo.headSha);

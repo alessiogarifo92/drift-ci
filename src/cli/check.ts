@@ -37,8 +37,9 @@ export function printReport(report: Report, options: { format: OutputFormat; fai
 }
 
 /**
- * The exit code (2) for an error a command expects: git cannot answer (bad ref, not a repository) or the
- * head's `.drift-ci.yml` is invalid. Anything else is a bug and is rethrown.
+ * The exit code (2) for an error: git cannot answer (bad ref, not a repository), the head's `.drift-ci.yml` is
+ * invalid, or anything else, which is a bug and is printed as `internal error` (never exit 1: that code means
+ * findings with `failOn: warning`).
  */
 export function reportFailure(error: unknown, io: Io): number {
   if (error instanceof ConfigError) {
@@ -49,7 +50,8 @@ export function reportFailure(error: unknown, io: Io): number {
     io.stderr(`drift-ci: ${error.message.split('\n')[0]}\n`);
     return 2;
   }
-  throw error;
+  io.stderr(`drift-ci: internal error: ${error instanceof Error ? error.message : String(error)}\n`);
+  return 2;
 }
 
 /**

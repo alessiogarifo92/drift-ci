@@ -4,6 +4,9 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { CheckResult } from '../src/core/finding.ts';
 import { VERSION, parseArgs, run, type Io } from '../src/cli/main.ts';
+import { reportFailure } from '../src/cli/check.ts';
+import { ConfigError } from '../src/core/config.ts';
+import { GitError } from '../src/git/errors.ts';
 import { createFixtureRepo } from './helpers/fixture-repo.ts';
 
 function capture(cwd = '/nonexistent'): Io & { out: string; err: string } {
@@ -320,6 +323,31 @@ describe('exit codes', () => {
   it('prints nothing on stdout when it exits 2', async () => {
     const io = capture(found.dir);
     expect(await run(['--base', 'no-such-ref', '--fail-on', 'warning'], io)).toBe(2);
+    expect(io.out).toBe('');
+  });
+});
+
+describe('reportFailure', () => {
+  it('prints a git failure by its first line and exits 2', () => {
+    const io = capture();
+    expect(reportFailure(new GitError('git rev-parse failed\nfatal: noise'), io)).toBe(2);
+    expect(io.err).toBe('drift-ci: git rev-parse failed\n');
+  });
+
+  it('prints a config error and exits 2', () => {
+    const io = capture();
+    expect(reportFailure(new ConfigError('.drift-ci.yml: bad'), io)).toBe(2);
+    expect(io.err).toBe('drift-ci: .drift-ci.yml: bad\n');
+  });
+
+  it.each([
+    [new TypeError('x is undefined'), 'x is undefined'],
+    [new RangeError('Maximum call stack size exceeded'), 'Maximum call stack size exceeded'],
+    ['plain string', 'plain string'],
+  ])('reports an unexpected error as an internal error and exits 2, not 1 (%#)', (error, text) => {
+    const io = capture();
+    expect(reportFailure(error, io)).toBe(2);
+    expect(io.err).toBe(`drift-ci: internal error: ${text}\n`);
     expect(io.out).toBe('');
   });
 });

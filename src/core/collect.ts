@@ -17,6 +17,34 @@ export interface CollectOptions {
   config?: DriftConfig;
   /** Which head files are docs to index. Default: the config's docs, else `isIndexedDoc`. */
   docFilter?: (path: string) => boolean;
+  /** Records a doc that was skipped (too large, nested too deep); shown next to the findings. */
+  warn?: (message: string) => void;
+}
+
+/** Larger docs are skipped: they come from the head of a pull request and the parser is not free. */
+export const MAX_DOC_CHARS = 1_000_000;
+
+/** Longest run of indentation and `>` marks at the start of a line; deeper nesting makes the parser crash or crawl. */
+const MAX_NESTING_PREFIX = 200;
+const NESTING_PREFIX = new RegExp(`^[ \\t>]{${MAX_NESTING_PREFIX + 1},}`, 'm');
+
+/** The references of a doc, or why it was skipped: `undefined` plus a warning. */
+function indexSafely(path: string, content: string, repo: RepoIdentity | undefined, warn: (m: string) => void): Reference[] | undefined {
+  if (content.length > MAX_DOC_CHARS) {
+    warn(`${path}: skipped, larger than 1 MB`);
+    return undefined;
+  }
+  if (NESTING_PREFIX.test(content)) {
+    warn(`${path}: skipped, nesting too deep`);
+    return undefined;
+  }
+  try {
+    return indexMarkdown(path, content, repo ? { repo } : undefined);
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error; // stack overflow of a pathological structure
+    warn(`${path}: skipped, nesting too deep`);
+    return undefined;
+  }
 }
 
 function compareStrings(a: string, b: string): number {
@@ -36,7 +64,7 @@ function compareFindings(a: Finding, b: Finding): number {
 /**
  * Findings for the head docs: every non-shadow reference that `evaluate` reports as drifted, sorted by
  * file, line, column and rule, one per (rule, position, fact). A finding is dropped when the doc suppresses
- * its line (`drift-ignore` comments, historical wording) or an `ignore` entry of the config matches it.
+ * its line (`drift-ignore` comments, historical wording, a line that already holds the suggested replacement) or an `ignore` entry of the config matches it.
  */
 export async function collectFindings(
   head: RepoSnapshot,
@@ -53,13 +81,17 @@ export async function collectFindings(
   for (const path of docPaths) {
     const content = contents.get(path);
     if (content === undefined) continue;
+    const refs = indexSafely(path, content, repo, options.warn ?? (() => undefined));
+    if (refs === undefined) continue;
     const suppressed = suppressedLines(splitLines(content));
-    for (const ref of indexMarkdown(path, content, repo ? { repo } : undefined)) {
+    for (const ref of refs) {
       if (ref.shadow || suppressed.has(ref.line) || hasHistoricalContext(ref.contextLine)) continue;
       for (const rule of rules) {
         if (!rule.kinds.includes(ref.kind)) continue;
         const drift = evaluate(rule, ref, { path });
         if (drift === undefined) continue;
+        // The author already wrote the new name next to the old one: nothing left to fix.
+        if (drift.suggestion !== undefined && ref.contextLine.includes(drift.suggestion)) continue;
         const key = JSON.stringify([rule.id, path, ref.line, ref.col, drift.fact]);
         if (findings.has(key)) continue;
         const finding: Finding = {

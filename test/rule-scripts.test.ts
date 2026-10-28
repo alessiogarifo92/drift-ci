@@ -256,25 +256,25 @@ describe('npmScriptRule: invalid package.json', () => {
   const valid = { 'package.json': pkg({ name: 'app', scripts: { build: 'x' } }), ...doc };
 
   it('warns and flags nothing when the head package.json is invalid', async () => {
-    const result = await runRule(rule(), { base: valid, head: { 'package.json': '{ "scripts": ', ...doc } });
+    const result = await runRule(rule(), { base: valid, head: { 'package.json': '{ "scripts": ', ...doc }, changes: { modified: ['package.json'] } });
     expect(result.findings).toEqual([]);
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toMatch(/^package\.json: invalid package\.json \(.+\); its scripts and bins are ignored$/);
   });
 
   it('warns and flags nothing when the base package.json is invalid', async () => {
-    const result = await runRule(rule(), { base: { 'package.json': 'nope', ...doc }, head: valid });
+    const result = await runRule(rule(), { base: { 'package.json': 'nope', ...doc }, head: valid, changes: { modified: ['package.json'] } });
     expect(result.findings).toEqual([]);
     expect(result.warnings).toHaveLength(1);
   });
 
   it('warns once when both sides are invalid in the same way', async () => {
     const bad = { 'package.json': '{', ...doc };
-    expect((await runRule(rule(), { base: bad, head: bad })).warnings).toHaveLength(1);
+    expect((await runRule(rule(), { base: bad, head: bad, changes: { modified: ['package.json'] } })).warnings).toHaveLength(1);
   });
 
   it('reports a non-object package.json', async () => {
-    const result = await runRule(rule(), { base: valid, head: { 'package.json': '[]', ...doc } });
+    const result = await runRule(rule(), { base: valid, head: { 'package.json': '[]', ...doc }, changes: { modified: ['package.json'] } });
     expect(result.warnings).toEqual(['package.json: invalid package.json (not a JSON object); its scripts and bins are ignored']);
     expect(result.findings).toEqual([]);
   });
@@ -282,9 +282,122 @@ describe('npmScriptRule: invalid package.json', () => {
   it('keeps resolving other packages', async () => {
     const base = monorepo({ 'packages/b/README.md': '`npm run build`' });
     const head = monorepo({ 'packages/a/package.json': '{', 'packages/b/package.json': pkg({ name: 'b' }), 'packages/b/README.md': '`npm run build`' });
-    const result = await runRule(rule(), { base, head });
+    const result = await runRule(rule(), { base, head, changes: { added: ['packages/a/package.json'] } });
     expect(result.findings.map((f) => f.fact)).toEqual(['packages/b/package.json#build']);
     expect(result.warnings).toHaveLength(1);
+  });
+
+  it('stays silent about an invalid package.json the diff did not touch', async () => {
+    const bad = { 'package.json': '{ nope', ...doc };
+    const result = await runRule(rule(), { base: bad, head: bad, changes: { modified: ['README.md'] } });
+    expect(result.warnings).toEqual([]);
+    expect(result.findings).toEqual([]);
+  });
+
+  it.each([
+    ['added', { added: ['package.json'] }],
+    ['modified', { modified: ['package.json'] }],
+    ['renamed to', { renamed: [{ from: 'old/package.json', to: 'package.json' }] }],
+  ])('warns when the diff %s the invalid package.json', async (_label, changes) => {
+    const result = await runRule(rule(), { base: valid, head: { 'package.json': '{', ...doc }, changes });
+    expect(result.warnings).toHaveLength(1);
+  });
+
+  it('does not warn when the invalid package.json was only deleted or renamed away', async () => {
+    const bad = { 'package.json': '{', ...doc };
+    const result = await runRule(rule(), {
+      base: bad,
+      head: { ...doc },
+      changes: { deleted: ['package.json'], renamed: [{ from: 'package.json', to: 'x/other.txt' }] },
+    });
+    expect(result.warnings).toEqual([]);
+  });
+});
+
+describe('npmScriptRule: packages under fixtures, vendor and excluded paths', () => {
+  const rootDoc = { 'README.md': '`npm run build`' };
+  const pkgs = (extra: Files): Files => ({ 'package.json': pkg({ name: 'root', scripts: { build: 'x' } }), ...rootDoc, ...extra });
+
+  it.each(['test/fixtures/a/package.json', 'x/__fixtures__/a/package.json', 'testdata/a/package.json', 'vendor/a/package.json'])(
+    'does not warn about, nor read, %s',
+    async (path) => {
+      const result = await runRule(rule(), {
+        base: pkgs({}),
+        head: pkgs({ [path]: '{ broken' }),
+        changes: { added: [path] },
+      });
+      expect(result.warnings).toEqual([]);
+    },
+  );
+
+  it('does not resolve a doc to a fixture package.json', async () => {
+    const result = await briefOf(rule(), {
+      base: pkgs({ 'test/fixtures/a/package.json': pkg({ name: 'f', scripts: { build: 'x' } }), 'test/fixtures/a/README.md': '`npm run build`' }),
+      head: pkgs({ 'test/fixtures/a/package.json': pkg({ name: 'f', scripts: {} }), 'test/fixtures/a/README.md': '`npm run build`' }),
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('does not read a package.json matched by docs.exclude', async () => {
+    const result = await runRule(rule(), {
+      base: pkgs({}),
+      head: pkgs({ 'generated/a/package.json': '{ broken' }),
+      changes: { added: ['generated/a/package.json'] },
+      exclude: ['generated/**'],
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('still reads packages under examples and test directories', async () => {
+    const result = await runRule(rule(), {
+      base: pkgs({}),
+      head: pkgs({ 'examples/a/package.json': '{ broken', 'test/a/package.json': '{ broken' }),
+      changes: { added: ['examples/a/package.json', 'test/a/package.json'] },
+    });
+    expect(result.warnings).toHaveLength(2);
+  });
+});
+
+describe('npmScriptRule: runs across every workspace', () => {
+  const root = (scripts: Record<string, string>) => pkg({ name: 'root', private: true, workspaces: ['packages/*'], scripts });
+
+  it.each([
+    'pnpm -r build',
+    'pnpm --recursive run build',
+    'npm run build --workspaces',
+    'npm run build -ws',
+    'pnpm --filter "*" build',
+    'pnpm --filter ./packages/* run build',
+    'pnpm -F @acme/* build',
+  ])('does not flag `%s` when only the root lost the script', async (command) => {
+    const doc = fence(command);
+    const files = { 'packages/a/package.json': pkg({ name: 'a', scripts: { build: 'tsc' } }), 'README.md': doc };
+    const result = await briefOf(rule(), {
+      base: { ...files, 'package.json': root({ build: 'tsc -b', lint: 'x' }) },
+      head: { ...files, 'package.json': root({ lint: 'x' }) },
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('still flags the same script run in one workspace only', async () => {
+    const doc = fence('pnpm --filter root build');
+    const result = await briefOf(rule(), {
+      base: { 'package.json': root({ build: 'x' }), 'README.md': doc },
+      head: { 'package.json': root({}), 'README.md': doc },
+    });
+    expect(result).toEqual(['package.json#build -> none']);
+  });
+
+  it('does not flag in scan mode either', async () => {
+    const r = rule();
+    const files = { 'package.json': root({ lint: 'x' }), 'README.md': fence('pnpm -r run build', 'npm run build -ws') };
+    const result = await runRule(r, { base: files, head: files });
+    expect(result.findings).toEqual([]);
+    const ref = {
+      kind: 'npm-script' as const, normalized: 'build', file: 'README.md', line: 2, col: 13, source: 'fence' as const,
+      contextLine: 'pnpm -r run build', shadow: false, context: { packageManager: 'pnpm' as const, allWorkspaces: true as const },
+    };
+    expect(r.scan?.(ref, { path: 'README.md' })).toBeUndefined();
   });
 });
 

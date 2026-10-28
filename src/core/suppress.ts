@@ -38,9 +38,22 @@ export function suppressedLines(lines: readonly string[]): Set<number> {
 }
 
 /** Keywords that say the line talks about the past, so naming a gone thing there is not drift. */
-const HISTORICAL = /\b(?:renamed\s+from|formerly|deprecated|removed\s+in|previously)\b/i;
+const HISTORICAL = new RegExp(
+  [
+    'renamed\\s+from', 'formerly', 'deprecated', 'removed\\s+in', 'previously',
+    // The PR's own docs saying where the thing went: "moved to", "was removed", "replaced by", "no longer"...
+    'moved\\s+(?:from|to)', 'renamed\\s+to',
+    '(?:was|were|has\\s+been|have\\s+been)\\s+(?:removed|deleted|renamed|moved|replaced)',
+    'replaced\\s+(?:by|with)', 'no\\s+longer', 'used\\s+to\\s+be', 'now\\s+(?:lives|called|named)',
+  ].map((alternative) => `\\b(?:${alternative})\\b`).join('|'),
+  'i',
+);
 
-/** Whether the line says it describes something old: "renamed from", "formerly", "deprecated", "removed in", "previously". */
+/**
+ * Whether the line says it describes something old or something that changed: "renamed from", "formerly",
+ * "deprecated", "removed in", "previously", "moved from/to", "renamed to", "was/has been removed...",
+ * "replaced by/with", "no longer", "used to be", "now lives/called/named".
+ */
 export function hasHistoricalContext(line: string): boolean {
   return HISTORICAL.test(line);
 }

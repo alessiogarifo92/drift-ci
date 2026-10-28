@@ -4,7 +4,7 @@
 // cannot be told from any other command. Pure: everything comes through the head snapshot.
 import { collectFindings } from './collect.ts';
 import { disabledRuleIds } from './check.ts';
-import type { DriftConfig } from './config.ts';
+import { isExcludedByConfig, type DriftConfig } from './config.ts';
 import { FINDING_SCHEMA_VERSION, type ScanResult } from './finding.ts';
 import type { CheckContext, Rule } from './rules.ts';
 import type { RepoIdentity } from './shapes.ts';
@@ -38,6 +38,7 @@ export async function scanSnapshot(head: RepoSnapshot, options: ScanOptions): Pr
     baseFiles: headFiles,
     headFiles,
     hunks: [],
+    ...(config ? { excludedPaths: (path: string) => isExcludedByConfig(path, config) } : {}),
     warn: (message) => {
       if (!warnings.includes(message)) warnings.push(message);
     },
@@ -50,6 +51,7 @@ export async function scanSnapshot(head: RepoSnapshot, options: ScanOptions): Pr
     ...(repo ? { repo } : {}),
     ...(config ? { config } : {}),
     ...(options.docFilter ? { docFilter: options.docFilter } : {}),
+    warn: ctx.warn,
   });
 
   return {

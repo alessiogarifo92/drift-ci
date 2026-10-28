@@ -3,7 +3,7 @@ import { runCheck } from '../src/core/check.ts';
 import type { Finding } from '../src/core/finding.ts';
 import type { Reference } from '../src/core/reference.ts';
 import type { DiffHunk } from '../src/core/rules.ts';
-import { envRule, envNamesIn } from '../src/core/rules/env.ts';
+import { envRule, envNamesIn, isSdkEnv, SDK_ENV_NAMES, SDK_ENV_PREFIXES } from '../src/core/rules/env.ts';
 import type { RepoSnapshot } from '../src/core/snapshot.ts';
 import { changeSet, memorySnapshot } from './helpers/memory-snapshot.ts';
 
@@ -13,6 +13,14 @@ interface Scenario {
   /** Head files; the docs among them hold the references. */
   head: Files;
   hunks: readonly DiffHunk[];
+  /** Base files; default: each hunk's path holding the lines the hunk removed. */
+  base?: Files;
+}
+
+function baseOf(hunks: readonly DiffHunk[]): Files {
+  const files: Files = {};
+  for (const h of hunks) files[h.path] = `${files[h.path] ?? ''}${h.removed.join('\n')}\n`;
+  return files;
 }
 
 const hunk = (path: string, removed: string[], added: string[] = []): DiffHunk => ({ path, removed, added });
@@ -38,7 +46,8 @@ function spied(files: Files): { snapshot: RepoSnapshot; greps: string[] } {
 
 async function run(s: Scenario): Promise<{ findings: Finding[]; warnings: string[]; greps: string[] }> {
   const { snapshot, greps } = spied(s.head);
-  const result = await runCheck(memorySnapshot({}), snapshot, changeSet(), { rules: [envRule()], hunks: s.hunks });
+  const base = memorySnapshot(s.base ?? baseOf(s.hunks));
+  const result = await runCheck(base, snapshot, changeSet(), { rules: [envRule()], hunks: s.hunks });
   return { findings: result.findings, warnings: result.warnings, greps };
 }
 
@@ -176,6 +185,87 @@ describe('envRule: what is drift', () => {
       hunks: [hunk('src/app.js', ['process.env.OLD_NAME'])],
     });
     expect(findings.map((f) => f.file)).toEqual(['.cursorrules', 'README.md']);
+  });
+});
+
+describe('envRule: candidates need a code reader in base', () => {
+  it('skips a hunk of a doc: removing `process.env.X` from a code sample is not removing a reader', async () => {
+    const { findings, greps } = await run({
+      head: { 'README.md': README, 'docs/deploy.md': 'x' },
+      hunks: [
+        hunk('docs/deploy.md', ['const a = process.env.OLD_NAME;']),
+        hunk('notes/a.md', ['const a = process.env.OLD_NAME;']),
+        hunk('rules/a.mdx', ['const a = process.env.OLD_NAME;']),
+        hunk('.cursorrules', ['const a = process.env.OLD_NAME;']),
+      ],
+    });
+    expect(findings).toEqual([]);
+    expect(greps).toEqual([]);
+  });
+
+  it('drops a candidate whose base has no non-doc hit (only a doc sample ever read it)', async () => {
+    const { findings } = await run({
+      head: { 'README.md': README, 'src/app.js': 'run();' },
+      base: { 'README.md': 'const a = process.env.OLD_NAME;', 'src/app.js': 'run();' },
+      hunks: [hunk('src/app.js', ['const a = process.env.OLD_NAME;'])],
+    });
+    expect(findings).toEqual([]);
+  });
+
+  it('keeps a candidate when base has a non-doc hit besides docs', async () => {
+    const { findings } = await run({
+      head: { 'README.md': README },
+      base: { 'README.md': 'OLD_NAME', 'src/app.js': 'process.env.OLD_NAME' },
+      hunks: [hunk('src/app.js', ['process.env.OLD_NAME'])],
+    });
+    expect(brief(findings)).toEqual(['env:OLD_NAME -> none']);
+  });
+});
+
+describe('envRule: variables the environment feeds to libraries', () => {
+  it.each([
+    'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'AWS_REGION', 'AZURE_CLIENT_ID', 'GOOGLE_APPLICATION_CREDENTIALS',
+    'GCP_PROJECT', 'SENTRY_DSN', 'VERCEL_URL', 'NETLIFY_SITE_ID', 'SUPABASE_URL', 'STRIPE_SECRET_KEY', 'HF_TOKEN',
+    'HUGGINGFACE_HUB_TOKEN', 'GEMINI_API_KEY', 'MISTRAL_API_KEY', 'COHERE_API_KEY', 'GROQ_API_KEY',
+    'LANGCHAIN_TRACING_V2', 'LANGSMITH_API_KEY', 'OTEL_SERVICE_NAME', 'DD_API_KEY', 'NEW_RELIC_LICENSE_KEY',
+    'DOCKER_HOST', 'KUBECONFIG', 'KUBE_NAMESPACE', 'TF_VAR_x', 'PGHOST', 'PGUSER', 'PGPASSWORD', 'PGDATABASE',
+    'PGPORT', 'DATABASE_URL', 'REDIS_URL', 'PORT', 'HOST', 'LOG_LEVEL', 'DEBUG',
+  ])('never flags %s', async (name) => {
+    const { findings, greps } = await run({
+      head: { 'README.md': `Set \`${name}\`.` },
+      hunks: [hunk('src/app.js', [`process.env.${name}`])],
+    });
+    expect(findings).toEqual([]);
+    expect(greps).toEqual([]);
+  });
+
+  it('knows exact names and prefixes, not look-alikes', () => {
+    expect(isSdkEnv('PGHOST')).toBe(true);
+    expect(isSdkEnv('PGSOMETHING')).toBe(false);
+    expect(isSdkEnv('PORTAL_URL')).toBe(false);
+    expect(isSdkEnv('DATABASE_URL_X')).toBe(false);
+    expect(isSdkEnv('MY_AWS_KEY')).toBe(false);
+    expect(SDK_ENV_PREFIXES).toContain('OPENAI_');
+    expect(SDK_ENV_NAMES).toContain('DATABASE_URL');
+  });
+
+  it('keeps a name alive when a non-doc file mentions it in another case (settings libraries)', async () => {
+    const { findings } = await run({
+      head: {
+        'README.md': 'Set `MY_DB_URL`.',
+        'app/config.py': 'class Settings(BaseSettings):\n    my_db_url: str',
+      },
+      hunks: [hunk('app/config.py', ['MY_DB_URL = os.getenv("MY_DB_URL")'])],
+    });
+    expect(findings).toEqual([]);
+  });
+
+  it('still flags a name that docs alone mention in another case', async () => {
+    const { findings } = await run({
+      head: { 'README.md': 'Set `MY_DB_URL` (my_db_url).', 'src/a.py': 'x = 1' },
+      hunks: [hunk('app/config.py', ['MY_DB_URL = os.getenv("MY_DB_URL")'])],
+    });
+    expect(brief(findings)).toEqual(['env:MY_DB_URL -> none']);
   });
 });
 

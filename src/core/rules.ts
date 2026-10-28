@@ -23,6 +23,11 @@ export interface CheckContext {
   headFiles: readonly SnapshotEntry[];
   /** Diff hunks between base and head; empty when the caller did not compute them. */
   hunks: readonly DiffHunk[];
+  /**
+   * Paths the config's `docs.exclude` matches: the rules that build an inventory of packages or makefiles
+   * leave them out. Absent without a config.
+   */
+  excludedPaths?: (path: string) => boolean;
   /** Records a condition that may make the result incomplete; shown next to the findings. */
   warn(message: string): void;
 }

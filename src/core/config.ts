@@ -95,6 +95,10 @@ export function defaultConfig(): DriftConfig {
   };
 }
 
+/** Longest glob and most `*`/`?` wildcards a config glob may have. */
+const MAX_GLOB_LENGTH = 256;
+const MAX_GLOB_WILDCARDS = 8;
+
 type Plain = Record<string, unknown>;
 
 function isMapping(value: unknown): value is Plain {
@@ -131,10 +135,16 @@ export function parseConfig(text: string, source: string = CONFIG_PATH): DriftCo
     }
   };
   const mappingAt = (value: unknown, path: string): Plain => (isMapping(value) ? value : fail(`${path} must be a mapping`));
+  // A glob is compiled to a regular expression: bound its size and its wildcards so a config cannot make matching explode.
+  const limited = (glob: string, path: string): string => {
+    if (glob.length > MAX_GLOB_LENGTH) fail(`${path} is longer than ${MAX_GLOB_LENGTH} characters`);
+    if ((glob.match(/[*?]/g) ?? []).length > MAX_GLOB_WILDCARDS) fail(`${path} has more than ${MAX_GLOB_WILDCARDS} wildcards (* or ?)`);
+    return glob;
+  };
   const globsAt = (value: unknown, path: string): string[] => {
     if (!Array.isArray(value)) return fail(`${path} must be a list of globs`);
     return value.map((item: unknown, i) =>
-      typeof item === 'string' && item !== '' ? item : fail(`${path}[${i}] must be a non-empty string`),
+      typeof item === 'string' && item !== '' ? limited(item, `${path}[${i}]`) : fail(`${path}[${i}] must be a non-empty string`),
     );
   };
 
@@ -179,7 +189,7 @@ export function parseConfig(text: string, source: string = CONFIG_PATH): DriftCo
         if (!(key in entry)) continue;
         const value = entry[key];
         if (typeof value !== 'string' || value === '') fail(`${path}.${key} must be a non-empty string`);
-        out[key] = value as string;
+        out[key] = limited(value as string, `${path}.${key}`);
       }
       return out;
     });
@@ -230,6 +240,11 @@ export function isCheckedDoc(path: string, config: DriftConfig): boolean {
   const { include, exclude } = matchersFor(config);
   if (!isIndexedDoc(path) && !include(path)) return false;
   return !defaultExcluded(path) && !exclude(path);
+}
+
+/** Whether the config's `docs.exclude` matches the path (the built-in excludes do not count here). */
+export function isExcludedByConfig(path: string, config: DriftConfig): boolean {
+  return matchersFor(config).exclude(path);
 }
 
 /** A finding's fact without its rule prefix: `env:X` → `X`, `<pkg>/package.json#build` → `build`, paths as-is. */

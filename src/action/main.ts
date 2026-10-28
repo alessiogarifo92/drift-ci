@@ -67,7 +67,8 @@ async function run(core: ActionCore, deps: ActionDeps): Promise<void> {
     },
   });
 
-  for (const warning of result.warnings) core.warning(warning);
+  // Not annotations: GitHub shows ten per step and the findings need them. The summary lists the warnings too.
+  for (const warning of result.warnings) core.info(`warning: ${warning}`);
   emitAnnotations(core, result.findings);
 
   const ctx: RenderContext = { serverUrl: env.serverUrl, owner: env.owner, repo: env.repo, headSha: pr.headSha };

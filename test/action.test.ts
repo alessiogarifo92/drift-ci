@@ -123,7 +123,7 @@ describe('runAction: reporting', () => {
     expect(h.core.summaries[0]).toContain('README.md:3');
     expect(h.client.comments).toHaveLength(1);
     expect(h.client.comments[0]?.body).toContain(COMMENT_MARKER);
-    expect(h.client.comments[0]?.body).toContain(`/acme/widgets/blob/${HEAD_SHA}/README.md#L3`);
+    expect(h.client.comments[0]?.body).toContain(`/acme/widgets/blob/${HEAD_SHA}/README.md?plain=1#L3`);
     expect(h.core.failures).toEqual([]);
   });
 
@@ -144,12 +144,26 @@ describe('runAction: reporting', () => {
     });
   });
 
-  it('forwards the warnings of the check as annotations', async () => {
-    const h = harness({ result: checkResult([], { warnings: ['could not parse package.json'] }) });
+  it('logs the warnings of the check and lists them in the summary, without spending annotations on them', async () => {
+    const h = harness({ result: checkResult([finding()], { warnings: ['could not parse package.json'] }) });
     await h.run();
-    expect(h.core.annotations).toEqual([
-      { level: 'warning', message: 'could not parse package.json', properties: undefined },
-    ]);
+    expect(h.core.infos).toContain('warning: could not parse package.json');
+    expect(h.core.annotations.map((a) => a.message)).toEqual(['path `src/old.ts` was renamed to `lib/new.ts` in this change (suggestion: lib/new.ts)']);
+    expect(h.core.summaries[0]).toContain('could not parse package.json');
+  });
+
+  it('still emits ten finding annotations when the check also has warnings', async () => {
+    const findings = Array.from({ length: 12 }, (_, i) => finding({ line: i + 1 }));
+    const h = harness({ result: checkResult(findings, { warnings: ['w1', 'w2', 'w3'] }) });
+    await h.run();
+    expect(h.core.annotations.filter((a) => a.level === 'warning')).toHaveLength(10);
+  });
+
+  it('notes in the summary and the comment that the pull request changes .drift-ci.yml', async () => {
+    const h = harness({ result: checkResult([finding()], { configChanged: true }) });
+    await h.run();
+    expect(h.core.summaries[0]).toContain('the check used the new configuration');
+    expect(h.client.comments[0]?.body).toContain('the check used the new configuration');
   });
 
   it('writes a "no drift" summary and no comment when nothing drifted', async () => {
@@ -165,7 +179,7 @@ describe('runAction: reporting', () => {
     await harness({ client }).run();
     await harness({ client, result: checkResult([finding({ line: 5 })]) }).run();
     expect(client.comments).toHaveLength(1);
-    expect(client.comments[0]?.body).toContain('README.md#L5');
+    expect(client.comments[0]?.body).toContain('README.md?plain=1#L5');
     expect(client.calls).toEqual(['list #7', 'create #7', 'list #7', 'update 1000']);
   });
 
@@ -364,7 +378,7 @@ describe('runAction: real repositories', () => {
     expect(client.comments).toHaveLength(1);
     const body = client.comments[0]?.body ?? '';
     expect(body).toContain(COMMENT_MARKER);
-    expect(body).toContain(`](https://github.com/acme/widgets/blob/${repo.headSha}/README.md#L3)`);
+    expect(body).toContain(`](https://github.com/acme/widgets/blob/${repo.headSha}/README.md?plain=1#L3)`);
     expect(body).toContain('src/old.ts');
     expect(body).toContain('Suggestion: `lib/new.ts`');
     expect(core.annotations).toMatchObject([
@@ -389,7 +403,34 @@ describe('runAction: real repositories', () => {
 
     expect(core.failures).toEqual([]);
     expect(client.comments).toHaveLength(1);
-    expect(client.comments[0]?.body).toContain('README.md#L3');
+    expect(client.comments[0]?.body).toContain('README.md?plain=1#L3');
+  });
+
+  it('on a depth-1 checkout of the merge commit (actions/checkout default): HEAD is not head.sha, the base is its first parent', async () => {
+    const origin = fixture();
+    origin.git('checkout', '--quiet', '-b', 'pr-merge', origin.baseSha);
+    origin.git('merge', '--quiet', '--no-ff', '-m', 'Merge pull request', origin.headSha);
+    const mergeSha = origin.git('rev-parse', 'HEAD');
+    expect(mergeSha).not.toBe(origin.headSha);
+    const parent = mkdtempSync(join(tmpdir(), 'drift-clone-'));
+    cleanups.push(() => rmSync(parent, { recursive: true, force: true }));
+    const clone = join(parent, 'checkout');
+    const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+    execFileSync('git', ['clone', '--quiet', '--depth=1', '--branch', 'pr-merge', `file://${origin.dir}`, clone], {
+      env: gitEnv,
+      stdio: 'ignore',
+    });
+    // The clone really is shallow: the merge commit has no parents there.
+    expect(execFileSync('git', ['rev-list', '--parents', '-n1', 'HEAD'], { cwd: clone, env: gitEnv, encoding: 'utf8' }).trim()).toBe(mergeSha);
+    const client = fakeClient();
+    const { core, run } = realRun(clone, { headSha: origin.headSha, baseSha: origin.baseSha }, client);
+
+    await run();
+
+    expect(core.failures).toEqual([]);
+    expect(client.comments).toHaveLength(1);
+    expect(client.comments[0]?.body).toContain('README.md?plain=1#L3');
+    expect(client.comments[0]?.body).toContain('Suggestion: `lib/new.ts`');
   });
 
   it('fails clearly when the base commit does not exist anywhere', async () => {

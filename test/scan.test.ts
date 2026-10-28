@@ -163,6 +163,42 @@ describe('scanSnapshot: npm scripts', () => {
     expect(await brief(files)).toEqual([]);
   });
 
+  it('reads only the command around an inline `npm start`, not the prose before it', async () => {
+    const files = {
+      'package.json': app({}),
+      'README.md':
+        'Written as `npm run <script>` or `pnpm run <script>` that it defines. `npm start`, `pnpm <script>`, `yarn` are skipped: `npm start` runs a file.',
+    };
+    expect(await brief(files)).toEqual([]);
+  });
+
+  it('still flags an explicit inline `npm run x` after other inline code', async () => {
+    const files = { 'package.json': app({}), 'README.md': 'Use `npm install` then `npm run build`, or `pnpm run lint`.' };
+    expect(await brief(files)).toEqual([
+      'npm-script README.md:1 npm script `build` (package `app`) does not exist at this commit',
+      'npm-script README.md:1 npm script `lint` (package `app`) does not exist at this commit',
+    ]);
+  });
+
+  it('warns about an invalid package.json (a scan has no diff: every file counts) but not about fixtures', async () => {
+    const result = await scan({
+      'package.json': '{ nope',
+      'test/fixtures/a/package.json': '{ nope',
+      'README.md': fence('npm run build'),
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/^package\.json: invalid package\.json/);
+  });
+
+  it('does not read the makefiles and packages of a fixture directory', async () => {
+    const files: Files = {
+      'Makefile': 'verify:\n',
+      'test/fixtures/a/Makefile': 'build:\n',
+      'README.md': fence('make build'),
+    };
+    expect(await brief(files)).toEqual(['make-target README.md:2 Make target `build` does not exist at this commit']);
+  });
+
   it('does not flag anything without a package.json', async () => {
     expect(await brief({ 'README.md': fence('npm run build') })).toEqual([]);
   });

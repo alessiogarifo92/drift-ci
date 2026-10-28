@@ -121,7 +121,7 @@ export async function computeHunks(
   const { stdout } = await runGit(
     repoDir,
     [
-      '-c', `diff.renameLimit=${DEFAULT_RENAME_LIMIT}`,
+      '-c', `diff.renameLimit=${DEFAULT_RENAME_LIMIT}`, '-c', 'diff.interHunkContext=0',
       'diff', '-U0', '-M', '--no-color', '--no-ext-diff', '--no-textconv',
       '--src-prefix=a/', '--dst-prefix=b/',
       baseSha, headSha,

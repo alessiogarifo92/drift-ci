@@ -81,7 +81,7 @@ describe('inline code: npm scripts', () => {
     ['`pnpm --filter web build`', { packageManager: 'pnpm', workspace: 'web' }],
     ['`pnpm --filter=web build`', { packageManager: 'pnpm', workspace: 'web' }],
     ['`pnpm -F web run build`', { packageManager: 'pnpm', workspace: 'web' }],
-    ['`pnpm -r run build`', { packageManager: 'pnpm' }],
+    ['`pnpm -r run build`', { packageManager: 'pnpm', allWorkspaces: true }],
     ['`yarn workspace web build`', { packageManager: 'yarn', workspace: 'web' }],
     ['`yarn workspace web run build`', { packageManager: 'yarn', workspace: 'web' }],
     ['`bun --filter web run build`', { packageManager: 'bun', workspace: 'web' }],
@@ -96,6 +96,34 @@ describe('inline code: npm scripts', () => {
     expect(scripts.map((r) => r.normalized)).toEqual(['build']);
     expect(scripts[0]?.context).toEqual(context);
   });
+
+  it.each([
+    ['`pnpm -r build`', { packageManager: 'pnpm', allWorkspaces: true }],
+    ['`pnpm --recursive run build`', { packageManager: 'pnpm', allWorkspaces: true }],
+    ['`npm run build --workspaces`', { packageManager: 'npm', allWorkspaces: true }],
+    ['`npm run build --workspaces --if-present`', { packageManager: 'npm', allWorkspaces: true }],
+    ['`npm run build -ws`', { packageManager: 'npm', allWorkspaces: true }],
+    ['`pnpm --filter "*" build`', { packageManager: 'pnpm', workspace: '*', allWorkspaces: true }],
+    ['`pnpm --filter ./packages/* run build`', { packageManager: 'pnpm', workspace: './packages/*', allWorkspaces: true }],
+    ['`pnpm -F @acme/* build`', { packageManager: 'pnpm', workspace: '@acme/*', allWorkspaces: true }],
+    ['`bun run --filter "*" build`', { packageManager: 'bun', workspace: '*', allWorkspaces: true }],
+  ])('context of %s: every workspace', (src, context) => {
+    const scripts = ofKind(index(src), 'npm-script');
+    expect(scripts.map((r) => r.normalized)).toEqual(['build']);
+    expect(scripts[0]?.context).toEqual(context);
+  });
+
+  it('does not take a flag after `--` for the package manager\'s', () => {
+    const scripts = ofKind(index('`npm run build -- -r --workspaces`'), 'npm-script');
+    expect(scripts[0]?.context).toEqual({ packageManager: 'npm' });
+  });
+
+  it.each(['`turbo run build`', '`npx turbo run build`', '`nx run-many -t build`', '`nx run-many --target=build --all`'])(
+    'turbo and nx runs are no npm scripts: %s',
+    (src) => {
+      expect(ofKind(index(src), 'npm-script')).toEqual([]);
+    },
+  );
 
   it('ignores a workspace flag that is missing its value at the end of the line', () => {
     const scripts = ofKind(index('`npm run build -w`'), 'npm-script');

@@ -39,6 +39,8 @@ export interface CheckResult {
   warnings: string[];
   /** The `failOn` setting of the head's config, for the exit code; `none` without a config. */
   failOn: FailOn;
+  /** Present (`true`) only when the change itself touches `.drift-ci.yml`: the check used that new version. */
+  configChanged?: true;
 }
 
 /** The JSON document `drift-ci scan --format json` prints (beta): `CheckResult` without a base. */

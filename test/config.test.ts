@@ -241,6 +241,42 @@ failOn: warning
   });
 });
 
+describe('parseConfig: glob limits', () => {
+  const long = 'a'.repeat(257);
+  const manyWildcards = '*/'.repeat(9); // 9 `*`
+  const mixed = '?*?*?*?*?'; // 9 wildcards of both kinds
+
+  it.each([
+    [`version: 1\ndocs:\n  include: ["${long}"]\n`, 'docs.include[0]'],
+    [`version: 1\ndocs:\n  exclude: ["ok/**", "${long}"]\n`, 'docs.exclude[1]'],
+    [`version: 1\nignore:\n  - name: "${long}"\n`, 'ignore[0].name'],
+    [`version: 1\nignore:\n  - file: "${long}"\n`, 'ignore[0].file'],
+  ])('rejects a glob longer than 256 characters: %#', (text, key) => {
+    const message = errorOf(text);
+    expect(message).toContain(key);
+    expect(message).toMatch(/longer than 256 characters/);
+  });
+
+  it.each([
+    [`version: 1\ndocs:\n  include: ["${manyWildcards}"]\n`, 'docs.include[0]'],
+    [`version: 1\ndocs:\n  exclude: ["${mixed}"]\n`, 'docs.exclude[0]'],
+    [`version: 1\nignore:\n  - name: "${mixed}"\n`, 'ignore[0].name'],
+    [`version: 1\nignore:\n  - kind: path\n    file: "${manyWildcards}"\n`, 'ignore[0].file'],
+  ])('rejects a glob with more than 8 wildcards: %#', (text, key) => {
+    const message = errorOf(text);
+    expect(message).toContain(key);
+    expect(message).toMatch(/more than 8 wildcards/);
+  });
+
+  it('accepts a glob of exactly 256 characters and one with exactly 8 wildcards', () => {
+    const edge = 'a'.repeat(256);
+    const eight = 'a*b*c*d*e*f*g*h*.md'; // 8 wildcards
+    const config = parseConfig(`version: 1\ndocs:\n  include: ["${edge}", "${eight}"]\n`);
+    expect(config.docs.include).toEqual([edge, eight]);
+    expect(eight.match(/[*?]/g)).toHaveLength(8);
+  });
+});
+
 describe('loadConfig', () => {
   it('returns the defaults when the head has no config file', async () => {
     expect(await loadConfig(memorySnapshot({ 'README.md': 'x' }))).toEqual(defaultConfig());

@@ -5,9 +5,15 @@ import { COMMENT_MARKER, renderComment, renderNoDriftComment, type RenderContext
 
 export type CommentOutcome = 'created' | 'updated' | 'unchanged' | 'none';
 
-// Only the Actions bot's own comment counts: anyone can paste the marker into a comment.
-function isStickyComment(comment: IssueComment): boolean {
-  return comment.user?.type === 'Bot' && comment.body.split('\n', 1)[0]?.trimEnd() === COMMENT_MARKER;
+/** The login the Actions `GITHUB_TOKEN` posts as. */
+const ACTIONS_BOT = 'github-actions[bot]';
+
+// Only our own comment counts, since anyone can paste the marker into a comment: the Actions bot's, or the
+// one of the user the token belongs to (a PAT or an app token, which `GET /user` names).
+function isStickyComment(comment: IssueComment, viewer: string | undefined): boolean {
+  const login = comment.user?.login;
+  const ours = login === ACTIONS_BOT || (viewer !== undefined && login === viewer);
+  return ours && comment.body.split('\n', 1)[0]?.trimEnd() === COMMENT_MARKER;
 }
 
 /**
@@ -21,11 +27,16 @@ export async function upsertStickyComment(
   result: CheckResult,
   ctx: RenderContext,
 ): Promise<CommentOutcome> {
-  const existing = (await client.listIssueComments(pr)).find(isStickyComment);
+  const comments = await client.listIssueComments(pr);
+  let existing = comments.find((c) => isStickyComment(c, undefined));
+  if (existing === undefined) {
+    const viewer = await client.viewerLogin(); // a PAT or an app token posts as that user, not as the Actions bot
+    if (viewer !== undefined) existing = comments.find((c) => isStickyComment(c, viewer));
+  }
   const hasFindings = result.findings.length > 0;
   if (!existing && !hasFindings) return 'none';
 
-  const body = hasFindings ? renderComment(result, ctx) : renderNoDriftComment(ctx);
+  const body = hasFindings ? renderComment(result, ctx) : renderNoDriftComment(ctx, result);
   if (!existing) {
     await client.createComment(pr, body);
     return 'created';
