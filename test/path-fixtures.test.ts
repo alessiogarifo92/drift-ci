@@ -3,8 +3,9 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { runCheck } from '../src/core/check.ts';
 import type { CheckResult } from '../src/core/finding.ts';
-import { pathRule } from '../src/core/rules/path.ts';
+import { defaultRules } from '../src/core/rules/index.ts';
 import { computeChangeSet } from '../src/git/changeset.ts';
+import { computeHunks } from '../src/git/hunks.ts';
 import { openSnapshot } from '../src/git/snapshot.ts';
 import { createFixtureRepo, FIXTURES_DIR, type FixtureRepo } from './helpers/fixture-repo.ts';
 import { commitWithIndexEntry } from './helpers/git-extras.ts';
@@ -18,12 +19,13 @@ interface Expected {
 }
 
 async function check(repo: FixtureRepo, base: string, head: string): Promise<CheckResult> {
-  const [baseSnap, headSnap, changes] = await Promise.all([
+  const [baseSnap, headSnap, changes, hunks] = await Promise.all([
     openSnapshot(repo.dir, base),
     openSnapshot(repo.dir, head),
     computeChangeSet(repo.dir, base, head),
+    computeHunks(repo.dir, base, head),
   ]);
-  return runCheck(baseSnap, headSnap, changes, { rules: [pathRule()] });
+  return runCheck(baseSnap, headSnap, changes, { rules: defaultRules(), hunks });
 }
 
 const repos: FixtureRepo[] = [];
@@ -38,7 +40,7 @@ const cases = readdirSync(FIXTURES_DIR)
   .filter((name) => existsSync(join(FIXTURES_DIR, name, 'expected.json')))
   .sort();
 
-describe('path rule on fixture repositories', () => {
+describe('default rules on fixture repositories', () => {
   it('has fixtures for every acceptance case', () => {
     expect(cases).toEqual(
       expect.arrayContaining([
@@ -49,6 +51,11 @@ describe('path rule on fixture repositories', () => {
         'path-gitignored-build',
         'path-monorepo',
         'path-case-rename',
+        'env-deleted-everywhere',
+        'env-moved-to-schema',
+        'env-still-in-compose',
+        'env-still-in-workflow',
+        'env-renamed',
       ]),
     );
   });

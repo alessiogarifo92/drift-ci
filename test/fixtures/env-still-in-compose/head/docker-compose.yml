@@ -1,0 +1,5 @@
+services:
+  app:
+    image: app
+    environment:
+      DATABASE_URL: postgres://db/app

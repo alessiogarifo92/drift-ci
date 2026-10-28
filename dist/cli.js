@@ -918,11 +918,11 @@ var require_ignore = __commonJS({
         const rules = this._rules;
         const { length } = rules;
         const shortcut = this._basenameCount * 2 >= length;
-        const basename = shortcut ? basenameOf(path2) : path2;
+        const basename2 = shortcut ? basenameOf(path2) : path2;
         for (let index2 = length - 1; index2 >= 0; index2--) {
           const rule = rules[index2];
           if (rule[mode].test(
-            shortcut && rule._basenameOnly ? basename : path2
+            shortcut && rule._basenameOnly ? basename2 : path2
           )) {
             const { negative } = rule;
             const ret = {
@@ -12153,10 +12153,10 @@ var VFile = class {
    * @returns {undefined}
    *   Nothing.
    */
-  set basename(basename) {
-    assertNonEmpty(basename, "basename");
-    assertPart(basename, "basename");
-    this.path = default2.join(this.dirname || "", basename);
+  set basename(basename2) {
+    assertNonEmpty(basename2, "basename");
+    assertPart(basename2, "basename");
+    this.path = default2.join(this.dirname || "", basename2);
   }
   /**
    * Get the parent path (example: `'~'`).
@@ -14367,6 +14367,105 @@ async function runCheck(base, head, changes, options) {
   };
 }
 
+// src/core/rules/env.ts
+var MAX_CANDIDATES = 200;
+var NAME = "[A-Za-z_][A-Za-z0-9_]*";
+var QUOTED = `\\s*['"\`](${NAME})['"\`]\\s*`;
+var ACCESSORS = [
+  new RegExp(`(?<![\\w.$])process\\.env\\??\\.(${NAME})`, "g"),
+  new RegExp(`(?<![\\w.$])process\\.env\\??\\.?\\[${QUOTED}\\]`, "g"),
+  new RegExp(`(?<![\\w.$])import\\.meta\\.env\\??\\.(${NAME})`, "g"),
+  new RegExp(`(?<![\\w.$])import\\.meta\\.env\\??\\.?\\[${QUOTED}\\]`, "g"),
+  new RegExp(`(?<![\\w.$])os\\.environ\\[${QUOTED}\\]`, "g"),
+  new RegExp(`(?<![\\w.$])os\\.environ\\.get\\(${QUOTED}[,)]`, "g"),
+  new RegExp(`(?<![\\w.$])os\\.getenv\\(${QUOTED}[,)]`, "g")
+];
+var DOTENV_KEY = new RegExp(`^\\s*(?:export\\s+)?(${NAME})\\s*=`);
+var DOTENV_TEMPLATES = /* @__PURE__ */ new Set([
+  ".env.example",
+  ".env.sample",
+  ".env.template",
+  ".env.dist",
+  "example.env"
+]);
+function envNamesIn(line, dotenv = false) {
+  const found = [];
+  for (const pattern of ACCESSORS) {
+    for (const match of line.matchAll(new RegExp(pattern))) {
+      found.push({ index: match.index, name: match[1] });
+    }
+  }
+  if (dotenv) {
+    const key = DOTENV_KEY.exec(line)?.[1];
+    if (key !== void 0) found.push({ index: 0, name: key });
+  }
+  found.sort((a, b) => a.index - b.index);
+  return [...new Set(found.map((f) => f.name))];
+}
+function basename(path2) {
+  return path2.slice(path2.lastIndexOf("/") + 1);
+}
+function isDocFile(path2) {
+  return isIndexedDoc(path2) || /\.(?:md|mdx|mdc)$/i.test(path2) || basename(path2) === ".cursorrules";
+}
+function namesOf(lines, dotenv) {
+  return [...new Set(lines.flatMap((line) => envNamesIn(line, dotenv)))];
+}
+function describeChange(name, renamedTo) {
+  return renamedTo === void 0 ? `environment variable \`${name}\` is no longer read anywhere in the code after this change` : `environment variable \`${name}\` was renamed to \`${renamedTo}\` in this change`;
+}
+function envRule() {
+  let confirmed;
+  return {
+    id: "env",
+    kinds: ["env"],
+    async prepare(ctx) {
+      const proposals = /* @__PURE__ */ new Map();
+      for (const hunk of ctx.hunks) {
+        const dotenv = DOTENV_TEMPLATES.has(basename(hunk.path));
+        const removed = namesOf(hunk.removed, dotenv);
+        const added = namesOf(hunk.added, dotenv);
+        const [only] = removed;
+        const [replacement] = added;
+        const suggestion = removed.length === 1 && added.length === 1 && only !== replacement ? replacement : void 0;
+        for (const name of removed) {
+          if (isWellKnownEnv(name)) continue;
+          const list3 = proposals.get(name) ?? [];
+          list3.push(removed.length === 1 ? suggestion : void 0);
+          proposals.set(name, list3);
+        }
+      }
+      const names = [...proposals.keys()].sort();
+      let candidates = names;
+      if (names.length > MAX_CANDIDATES) {
+        candidates = names.slice(0, MAX_CANDIDATES);
+        ctx.warn(
+          `environment variable check limited to the first ${MAX_CANDIDATES} of ${names.length} removed names: later ones were not checked`
+        );
+      }
+      const result = /* @__PURE__ */ new Map();
+      for (const name of candidates) {
+        const hits = await ctx.head.grep(name);
+        if (hits.some((hit) => !isDocFile(hit.path))) continue;
+        const list3 = proposals.get(name) ?? [];
+        const first = list3[0];
+        result.set(name, list3.every((s) => s === first) ? first : void 0);
+      }
+      confirmed = result;
+    },
+    check(ref) {
+      if (confirmed === void 0) throw new Error("envRule: prepare() must run before check()");
+      if (!confirmed.has(ref.normalized)) return void 0;
+      const renamedTo = confirmed.get(ref.normalized);
+      return {
+        fact: `env:${ref.normalized}`,
+        message: describeChange(ref.normalized, renamedTo),
+        ...renamedTo === void 0 ? {} : { suggestion: renamedTo }
+      };
+    }
+  };
+}
+
 // src/core/rules/path.ts
 var import_ignore = __toESM(require_ignore(), 1);
 import { posix } from "node:path";
@@ -14472,7 +14571,7 @@ function ignoreMatcher(gitignores) {
     return ignored;
   };
 }
-function describeChange(fact, movedTo2) {
+function describeChange2(fact, movedTo2) {
   return movedTo2 === void 0 ? `\`${fact}\` was removed in this change` : `\`${fact}\` was renamed to \`${movedTo2}\` in this change`;
 }
 function pathRule() {
@@ -14504,7 +14603,7 @@ function pathRule() {
         return void 0;
       }
       const target = movedTo(s, matched.path);
-      const drift = { fact: matched.path, message: describeChange(matched.path, target) };
+      const drift = { fact: matched.path, message: describeChange2(matched.path, target) };
       if (target !== void 0) {
         const suggestion = styled(ref, matched.origin, target);
         if (suggestion !== void 0) drift.suggestion = suggestion;
@@ -14516,7 +14615,7 @@ function pathRule() {
 
 // src/core/rules/index.ts
 function defaultRules() {
-  return [pathRule()];
+  return [pathRule(), envRule()];
 }
 
 // src/core/snapshot.ts
@@ -14665,6 +14764,15 @@ async function resolveCommit(repoDir, rev, options = {}) {
     if (error instanceof GitError && error.exitCode === 128 && /Needed a single revision/.test(error.stderr)) {
       throw new UnknownRevisionError(rev, { args: error.args, stderr: error.stderr, exitCode: error.exitCode });
     }
+    throw error;
+  }
+}
+async function repositoryRoot(dir, options = {}) {
+  try {
+    const { stdout } = await runGit(dir, ["rev-parse", "--show-toplevel"], options);
+    return stdout.toString("utf8").replace(/\r?\n$/, "");
+  } catch (error) {
+    if (error instanceof GitError && error.exitCode === 128 && /work ?tree/i.test(error.stderr)) return dir;
     throw error;
   }
 }
@@ -14899,6 +15007,122 @@ async function computeChangeSet(repoDir, base, head, options = {}) {
   return { renamed, deleted, added, modified, renamedDirs, warnings };
 }
 
+// src/git/hunks.ts
+var HUNK_HEADER = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
+var SIMPLE_ESCAPES = {
+  a: 7,
+  b: 8,
+  f: 12,
+  n: 10,
+  r: 13,
+  t: 9,
+  v: 11,
+  "\\": 92,
+  '"': 34
+};
+function unquote(raw) {
+  if (raw.length < 2 || !raw.startsWith('"') || !raw.endsWith('"')) return raw;
+  const bytes = [];
+  const inner = raw.slice(1, -1);
+  for (let i = 0; i < inner.length; i++) {
+    const char = inner[i];
+    if (char !== "\\") {
+      bytes.push(...Buffer.from(char, "utf8"));
+      continue;
+    }
+    const octal = /^[0-7]{1,3}/.exec(inner.slice(i + 1))?.[0];
+    if (octal !== void 0) {
+      bytes.push(Number.parseInt(octal, 8) & 255);
+      i += octal.length;
+      continue;
+    }
+    const escaped = SIMPLE_ESCAPES[inner[i + 1] ?? ""];
+    if (escaped !== void 0) {
+      bytes.push(escaped);
+      i++;
+    } else {
+      bytes.push(92);
+    }
+  }
+  return Buffer.from(bytes).toString("utf8");
+}
+function headerPath(operand) {
+  const raw = operand.replace(/\t.*$/, "");
+  const path2 = unquote(raw);
+  if (path2 === "/dev/null") return void 0;
+  return /^[ab]\//.test(path2) ? path2.slice(2) : path2;
+}
+function parseUnifiedDiff(text5) {
+  const hunks = [];
+  const lines = text5.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  let basePath;
+  let headPath;
+  let current;
+  let removedLeft = 0;
+  let addedLeft = 0;
+  for (const line of lines) {
+    if (removedLeft > 0 || addedLeft > 0) {
+      if (line.startsWith("-") && removedLeft > 0) {
+        current?.removed.push(line.slice(1));
+        removedLeft--;
+        continue;
+      }
+      if (line.startsWith("+") && addedLeft > 0) {
+        current?.added.push(line.slice(1));
+        addedLeft--;
+        continue;
+      }
+      if (line.startsWith("\\")) continue;
+      removedLeft = 0;
+      addedLeft = 0;
+    } else if (line.startsWith("\\")) {
+      continue;
+    }
+    if (line.startsWith("diff --git ")) {
+      basePath = void 0;
+      headPath = void 0;
+    } else if (line.startsWith("--- ")) {
+      basePath = headerPath(line.slice(4));
+    } else if (line.startsWith("+++ ")) {
+      headPath = headerPath(line.slice(4));
+    } else {
+      const header = HUNK_HEADER.exec(line);
+      if (header === null) continue;
+      const path2 = headPath ?? basePath;
+      if (path2 === void 0) continue;
+      removedLeft = header[1] === void 0 ? 1 : Number(header[1]);
+      addedLeft = header[2] === void 0 ? 1 : Number(header[2]);
+      current = { removed: [], added: [] };
+      hunks.push({ path: path2, removed: current.removed, added: current.added });
+    }
+  }
+  return hunks;
+}
+async function computeHunks(repoDir, base, head, options = {}) {
+  const baseSha = await resolveCommit(repoDir, base, options);
+  const headSha = await resolveCommit(repoDir, head, options);
+  const { stdout } = await runGit(
+    repoDir,
+    [
+      "-c",
+      `diff.renameLimit=${DEFAULT_RENAME_LIMIT}`,
+      "diff",
+      "-U0",
+      "-M",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--src-prefix=a/",
+      "--dst-prefix=b/",
+      baseSha,
+      headSha
+    ],
+    options
+  );
+  return parseUnifiedDiff(stdout.toString("utf8"));
+}
+
 // src/git/remote.ts
 var GITHUB_REMOTE = /^(?:(?:https?|ssh|git):\/\/(?:[^@/\s]+@)?github\.com(?::\d+)?\/|[\w.-]+@github\.com:)([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i;
 function parseGitHubRemote(url) {
@@ -14943,14 +15167,17 @@ async function runCheckCommand(options, io) {
   const { base, head, cwd, format } = options;
   let result;
   try {
-    const [baseSnapshot, headSnapshot, changes, repo] = await Promise.all([
-      openSnapshot(cwd, base),
-      openSnapshot(cwd, head),
-      computeChangeSet(cwd, base, head),
-      readRepoSlug(cwd)
+    const root2 = await repositoryRoot(cwd);
+    const [baseSnapshot, headSnapshot, changes, hunks, repo] = await Promise.all([
+      openSnapshot(root2, base),
+      openSnapshot(root2, head),
+      computeChangeSet(root2, base, head),
+      computeHunks(root2, base, head),
+      readRepoSlug(root2)
     ]);
     result = await runCheck(baseSnapshot, headSnapshot, changes, {
       rules: defaultRules(),
+      hunks,
       ...repo ? { repo } : {}
     });
   } catch (error) {

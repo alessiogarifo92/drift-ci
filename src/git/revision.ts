@@ -25,3 +25,19 @@ export async function resolveCommit(repoDir: string, rev: string, options: GitOp
     throw error;
   }
 }
+
+/**
+ * The top-level directory of the work tree that contains `dir`. Snapshots, change sets and hunks
+ * run git in the directory they are given, and `git grep <commit>` there only searches that
+ * subdirectory, so callers resolve the top level first. A bare repository has no work tree and
+ * is its own root.
+ */
+export async function repositoryRoot(dir: string, options: GitOptions = {}): Promise<string> {
+  try {
+    const { stdout } = await runGit(dir, ['rev-parse', '--show-toplevel'], options);
+    return stdout.toString('utf8').replace(/\r?\n$/, '');
+  } catch (error) {
+    if (error instanceof GitError && error.exitCode === 128 && /work ?tree/i.test(error.stderr)) return dir;
+    throw error;
+  }
+}

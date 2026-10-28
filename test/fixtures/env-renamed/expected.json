@@ -1,0 +1,3 @@
+[
+  { "ruleId": "env", "file": "README.md", "line": 3, "col": 6, "suggestion": "SERVICE_TOKEN" }
+]

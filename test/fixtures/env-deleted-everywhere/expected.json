@@ -1,0 +1,4 @@
+[
+  { "ruleId": "env", "file": "README.md", "line": 6, "col": 1 },
+  { "ruleId": "env", "file": "README.md", "line": 9, "col": 23 }
+]

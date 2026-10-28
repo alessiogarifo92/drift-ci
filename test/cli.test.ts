@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -222,6 +222,42 @@ describe('run', () => {
     expect(await run(['--base', 'no-such-ref'], io)).toBe(2);
     expect(io.err).toBe('drift-ci: unknown revision: no-such-ref\n');
     expect(io.out).toBe('');
+  });
+
+  it('flags a removed environment variable, from the repository root or from a subdirectory', async () => {
+    const envRepo = createFixtureRepo('env-deleted-everywhere');
+    try {
+      const sub = join(envRepo.dir, 'src', 'deep');
+      mkdirSync(sub, { recursive: true });
+      const expected = ['README.md:6:1', 'README.md:9:23'];
+      for (const cwd of [envRepo.dir, join(envRepo.dir, 'src'), sub]) {
+        const io = capture(cwd);
+        expect(await run(['--format', 'json'], io), cwd).toBe(0);
+        const parsed = JSON.parse(io.out) as CheckResult;
+        expect(parsed.findings.map((f) => `${f.file}:${f.line}:${f.col}`), cwd).toEqual(expected);
+        expect(parsed.findings.every((f) => f.ruleId === 'env' && f.fact === 'env:API_KEY'), cwd).toBe(true);
+        expect(io.err).toBe('');
+      }
+      // --cwd pointing into a subdirectory behaves the same.
+      const viaFlag = capture('/nonexistent');
+      expect(await run(['--cwd', sub], viaFlag)).toBe(0);
+      expect(viaFlag.out).toMatch(/^README\.md:6:1 {2}environment variable `API_KEY` is no longer read/);
+    } finally {
+      envRepo.cleanup();
+    }
+  });
+
+  it('does not flag a variable that a subdirectory file outside the working directory still uses', async () => {
+    // Without resolving the top level, `git grep` would only see the subdirectory and report drift.
+    const envRepo = createFixtureRepo('env-still-in-compose');
+    try {
+      const sub = join(envRepo.dir, 'src');
+      const io = capture(sub);
+      expect(await run([], io)).toBe(0);
+      expect(io.out).toBe('0 findings\n');
+    } finally {
+      envRepo.cleanup();
+    }
   });
 
   it('exits 2 when the directory is not a git repository', async () => {
