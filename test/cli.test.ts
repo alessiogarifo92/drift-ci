@@ -2,7 +2,6 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { formatText, formatWarnings } from '../src/cli/check.ts';
 import type { CheckResult } from '../src/core/finding.ts';
 import { VERSION, parseArgs, run, type Io } from '../src/cli/main.ts';
 import { createFixtureRepo } from './helpers/fixture-repo.ts';
@@ -44,7 +43,26 @@ describe('parseArgs', () => {
     );
   });
 
-  it.each([['-h'], ['--help'], ['--base', 'x', '--help'], ['check', '--help']])('recognises help in %j', (...argv) => {
+  it('reads --fail-on, for check and for the bare invocation', () => {
+    expect(parseArgs(['--fail-on', 'warning'], '/repo')).toEqual({
+      kind: 'run',
+      options: { base: 'HEAD^', head: 'HEAD', cwd: '/repo', format: 'text', failOn: 'warning' },
+    });
+    expect(parseArgs(['check', '--fail-on', 'none'], '/repo')).toMatchObject({ options: { failOn: 'none' } });
+  });
+
+  it('parses scan with its own options and no base', () => {
+    expect(parseArgs(['scan'], '/repo')).toEqual({
+      kind: 'scan',
+      options: { head: 'HEAD', cwd: '/repo', format: 'text' },
+    });
+    expect(parseArgs(['scan', '--head', 'abc', '--cwd', '/x', '--format', 'json', '--fail-on', 'warning'], '/repo')).toEqual({
+      kind: 'scan',
+      options: { head: 'abc', cwd: '/x', format: 'json', failOn: 'warning' },
+    });
+  });
+
+  it.each([['-h'], ['--help'], ['--base', 'x', '--help'], ['check', '--help'], ['scan', '--help'], ['scan', '-h']])('recognises help in %j', (...argv) => {
     expect(parseArgs(argv, '/repo')).toEqual({ kind: 'help' });
   });
 
@@ -60,58 +78,16 @@ describe('parseArgs', () => {
     [['--frobnicate'], 'unknown argument: --frobnicate'],
     [['stray'], 'unknown argument: stray'],
     [['check', 'check'], 'unknown argument: check'],
+    [['--fail-on'], '--fail-on needs a value'],
+    [['--fail-on', 'error'], 'unknown --fail-on value: error (expected none or warning)'],
+    [['scan', '--fail-on', 'any'], 'unknown --fail-on value: any (expected none or warning)'],
+    [['scan', '--base', 'x'], '--base is not supported by scan (it looks at one commit)'],
+    [['scan', '--format', 'xml'], 'unknown format: xml (expected json or text)'],
+    [['scan', '--head'], '--head needs a value'],
+    [['scan', 'extra'], 'unknown argument: extra'],
+    [['scan', 'scan'], 'unknown argument: scan'],
   ])('reports %j as an error', (argv, message) => {
     expect(parseArgs(argv, '/repo')).toEqual({ kind: 'error', message });
-  });
-});
-
-describe('formatText and formatWarnings', () => {
-  const result = (findings: CheckResult['findings'], warnings: string[] = []): CheckResult => ({
-    schemaVersion: 1,
-    base: 'a'.repeat(40),
-    head: 'b'.repeat(40),
-    findings,
-    warnings,
-    failOn: 'none',
-  });
-  const finding = (over: Partial<CheckResult['findings'][number]> = {}): CheckResult['findings'][number] => ({
-    ruleId: 'path',
-    kind: 'path',
-    fact: 'src/old.ts',
-    file: 'README.md',
-    line: 3,
-    col: 15,
-    message: '`src/old.ts` was removed in this change',
-    fingerprint: '0123456789abcdef',
-    ...over,
-  });
-
-  it('prints one line per finding, the suggestion and a count', () => {
-    const text = formatText(
-      result([
-        finding({ suggestion: 'lib/new.ts', message: '`src/old.ts` was renamed to `lib/new.ts` in this change' }),
-        finding({ file: 'docs/a.md', line: 10, col: 2 }),
-      ]),
-    );
-    expect(text).toBe(
-      [
-        'README.md:3:15  `src/old.ts` was renamed to `lib/new.ts` in this change',
-        '  suggestion: lib/new.ts',
-        'docs/a.md:10:2  `src/old.ts` was removed in this change',
-        '2 findings',
-        '',
-      ].join('\n'),
-    );
-  });
-
-  it('counts singular and zero', () => {
-    expect(formatText(result([finding()]))).toMatch(/\n1 finding\n$/);
-    expect(formatText(result([]))).toBe('0 findings\n');
-  });
-
-  it('prefixes warnings', () => {
-    expect(formatWarnings(result([], ['one', 'two']))).toBe('warning: one\nwarning: two\n');
-    expect(formatWarnings(result([]))).toBe('');
   });
 });
 
@@ -159,7 +135,7 @@ describe('run', () => {
     expect(io.out.startsWith('{\n  "schemaVersion": 1,\n')).toBe(true);
     expect(io.out.endsWith('}\n')).toBe(true);
     const parsed = JSON.parse(io.out) as CheckResult;
-    expect(parsed).toMatchObject({ schemaVersion: 1, base: repo.baseSha, head: repo.headSha, warnings: [] });
+    expect(parsed).toMatchObject({ schemaVersion: 1, mode: 'diff', base: repo.baseSha, head: repo.headSha, warnings: [] });
     expect(parsed.findings).toHaveLength(1);
     expect(parsed.findings[0]).toMatchObject({
       ruleId: 'path',
@@ -181,7 +157,7 @@ describe('run', () => {
     expect(await run([], bare)).toBe(0);
     expect(await run(['check'], check)).toBe(0);
     expect(bare.out).toBe(
-      'README.md:3:15  `src/old.ts` was renamed to `lib/new.ts` in this change\n  suggestion: lib/new.ts\n1 finding\n',
+      'README.md\n  3:15  `src/old.ts` was renamed to `lib/new.ts` in this change\n    -> lib/new.ts\n\n1 finding in 1 file\n',
     );
     expect(check.out).toBe(bare.out);
     expect(bare.err).toBe('');
@@ -190,7 +166,7 @@ describe('run', () => {
   it('honours --cwd and explicit refs', async () => {
     const io = capture('/nonexistent');
     expect(await run(['--cwd', repo.dir, '--base', repo.baseSha, '--head', 'main'], io)).toBe(0);
-    expect(io.out).toMatch(/1 finding\n$/);
+    expect(io.out).toMatch(/1 finding in 1 file\n$/);
   });
 
   it('finds nothing between identical commits', async () => {
@@ -242,7 +218,7 @@ describe('run', () => {
       // --cwd pointing into a subdirectory behaves the same.
       const viaFlag = capture('/nonexistent');
       expect(await run(['--cwd', sub], viaFlag)).toBe(0);
-      expect(viaFlag.out).toMatch(/^README\.md:6:1 {2}environment variable `API_KEY` is no longer read/);
+      expect(viaFlag.out).toMatch(/^README\.md\n {2}6:1 {3}environment variable `API_KEY` is no longer read/);
     } finally {
       envRepo.cleanup();
     }
@@ -279,5 +255,152 @@ describe('run', () => {
     const io = capture(repo.dir);
     expect(await run(['--base', '--output=/tmp/x'], io)).toBe(2);
     expect(io.err).toContain('--base needs a value');
+  });
+});
+
+describe('exit codes', () => {
+  const found = createFixtureRepo('path-renamed-file'); // one finding between HEAD^ and HEAD
+  const configured = createFixtureRepo('config-ignore'); // .drift-ci.yml: failOn warning, one finding
+  afterAll(() => {
+    found.cleanup();
+    configured.cleanup();
+  });
+
+  it('exits 0 with findings when failOn is none (the default)', async () => {
+    const io = capture(found.dir);
+    expect(await run(['check'], io)).toBe(0);
+    expect(io.out).toMatch(/1 finding in 1 file\n$/);
+    expect(await run(['check', '--fail-on', 'none'], capture(found.dir))).toBe(0);
+  });
+
+  it('exits 1 with --fail-on warning and findings, still printing them', async () => {
+    const io = capture(found.dir);
+    expect(await run(['check', '--fail-on', 'warning'], io)).toBe(1);
+    expect(io.out).toMatch(/1 finding in 1 file\n$/);
+    expect(io.err).toBe('');
+    expect(await run(['--fail-on', 'warning'], capture(found.dir))).toBe(1);
+  });
+
+  it('exits 1 with --fail-on warning and --format json, the document unchanged', async () => {
+    const io = capture(found.dir);
+    expect(await run(['--fail-on', 'warning', '--format', 'json'], io)).toBe(1);
+    expect((JSON.parse(io.out) as CheckResult).failOn).toBe('none');
+  });
+
+  it('exits 0 with --fail-on warning when there is nothing to report', async () => {
+    const io = capture(found.dir);
+    expect(await run(['--fail-on', 'warning', '--base', 'HEAD', '--head', 'HEAD'], io)).toBe(0);
+    expect(io.out).toBe('0 findings\n');
+  });
+
+  it('exits 1 when the config says failOn: warning', async () => {
+    expect(await run([], capture(configured.dir))).toBe(1);
+  });
+
+  it('lets --fail-on none override a config with failOn: warning', async () => {
+    const io = capture(configured.dir);
+    expect(await run(['--fail-on', 'none'], io)).toBe(0);
+    expect(io.out).toMatch(/1 finding in 1 file\n$/);
+  });
+
+  it('exits 2 for a bad argument, an unknown subcommand, a bad ref and an invalid config', async () => {
+    const invalid = createFixtureRepo('config-invalid');
+    try {
+      expect(await run(['--fail-on', 'maybe'], capture(found.dir))).toBe(2);
+      expect(await run(['frobnicate'], capture(found.dir))).toBe(2);
+      expect(await run(['check', '--base', 'no-such-ref'], capture(found.dir))).toBe(2);
+      expect(await run(['scan', '--head', 'no-such-ref'], capture(found.dir))).toBe(2);
+      expect(await run(['--fail-on', 'warning'], capture(invalid.dir))).toBe(2);
+      expect(await run(['scan', '--fail-on', 'warning'], capture(invalid.dir))).toBe(2);
+    } finally {
+      invalid.cleanup();
+    }
+  });
+
+  it('prints nothing on stdout when it exits 2', async () => {
+    const io = capture(found.dir);
+    expect(await run(['--base', 'no-such-ref', '--fail-on', 'warning'], io)).toBe(2);
+    expect(io.out).toBe('');
+  });
+});
+
+describe('help', () => {
+  it('lists both commands, the beta label, --fail-on and the exit codes', async () => {
+    const io = capture();
+    expect(await run(['--help'], io)).toBe(0);
+    expect(io.out).toContain('drift-ci scan [options]   (beta)');
+    expect(io.out).toContain('--fail-on <level>');
+    expect(io.out).toContain('Exit codes: 0 ok, 1 findings with failOn warning, 2 usage or runtime error.');
+    const scanHelp = capture();
+    await run(['scan', '--help'], scanHelp);
+    expect(scanHelp.out).toBe(io.out);
+  });
+});
+
+describe('scan command', () => {
+  const repo = createFixtureRepo('scan-sample');
+  afterAll(() => repo.cleanup());
+
+  it('starts its stderr with the beta line and prints the findings as text', async () => {
+    const io = capture(repo.dir);
+    expect(await run(['scan'], io)).toBe(0);
+    expect(io.err.startsWith('scan mode (beta): ')).toBe(true);
+    expect(io.err).toContain(repo.headSha.slice(0, 7));
+    expect(io.out).toBe(
+      [
+        'README.md',
+        '  3:36  npm script `deploy` (package `demo`) does not exist at this commit',
+        '  4:37  `src/gone.ts` does not exist at this commit',
+        '  6:26  Make target `release` does not exist at this commit',
+        '',
+        '3 findings in 1 file',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('prints the scan result as JSON, with mode scan and no base', async () => {
+    const io = capture(repo.dir);
+    expect(await run(['scan', '--format', 'json'], io)).toBe(0);
+    const parsed = JSON.parse(io.out) as Record<string, unknown>;
+    expect(parsed).toMatchObject({ schemaVersion: 1, mode: 'scan', head: repo.headSha, warnings: [], failOn: 'none' });
+    expect(parsed).not.toHaveProperty('base');
+    expect(io.out.startsWith('{\n  "schemaVersion": 1,\n  "mode": "scan",\n')).toBe(true);
+    expect(io.err.startsWith('scan mode (beta): ')).toBe(true);
+  });
+
+  it('never reports environment variables or bins, although the docs mention them', async () => {
+    const io = capture(repo.dir);
+    await run(['scan', '--format', 'json'], io);
+    const parsed = JSON.parse(io.out) as CheckResult;
+    expect(parsed.findings.map((f) => f.ruleId).sort()).toEqual(['make-target', 'npm-script', 'path']);
+    expect(io.out).not.toContain('APP_SECRET');
+    expect(io.out).not.toContain('drift-ci --help');
+  });
+
+  it('exits 1 with --fail-on warning, 0 without, and honours --head', async () => {
+    expect(await run(['scan', '--fail-on', 'warning'], capture(repo.dir))).toBe(1);
+    expect(await run(['scan', '--fail-on', 'none'], capture(repo.dir))).toBe(0);
+    const base = capture(repo.dir);
+    // The base commit is an empty tree: nothing to scan, nothing to fail on.
+    expect(await run(['scan', '--head', repo.baseSha, '--fail-on', 'warning'], base)).toBe(0);
+    expect(base.out).toBe('0 findings\n');
+  });
+
+  it('honours --cwd', async () => {
+    const io = capture('/nonexistent');
+    expect(await run(['scan', '--cwd', repo.dir], io)).toBe(0);
+    expect(io.out).toMatch(/3 findings in 1 file\n$/);
+  });
+
+  it('exits 2 when the directory is not a git repository', async () => {
+    const io = capture(mkdtempSync(join(tmpdir(), 'drift-scan-')));
+    try {
+      expect(await run(['scan'], io)).toBe(2);
+      expect(io.err).toMatch(/^drift-ci: .*\n$/);
+      expect(io.out).toBe('');
+    } finally {
+      rmSync(io.cwd, { recursive: true, force: true });
+    }
   });
 });

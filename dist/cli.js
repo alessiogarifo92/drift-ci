@@ -23660,36 +23660,16 @@ function hasHistoricalContext(line) {
   return HISTORICAL.test(line);
 }
 
-// src/core/check.ts
+// src/core/collect.ts
 function compareStrings(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
-}
-function disabledRuleIds(config) {
-  const keys = Object.keys(CHECK_RULE_IDS);
-  return new Set(keys.filter((key) => !config.checks[key]).map((key) => CHECK_RULE_IDS[key]));
 }
 function compareFindings(a, b) {
   return compareStrings(a.file, b.file) || a.line - b.line || a.col - b.col || compareStrings(a.ruleId, b.ruleId) || compareStrings(a.fact, b.fact);
 }
-async function runCheck(base, head, changes, options) {
-  const { repo, config, hunks = [] } = options;
+async function collectFindings(head, headFiles, options) {
+  const { rules, evaluate, repo, config } = options;
   const docFilter = options.docFilter ?? (config ? (path2) => isCheckedDoc(path2, config) : isIndexedDoc);
-  const disabled = config ? disabledRuleIds(config) : /* @__PURE__ */ new Set();
-  const rules = options.rules.filter((rule) => !disabled.has(rule.id));
-  const [baseFiles, headFiles] = await Promise.all([base.listFiles(), head.listFiles()]);
-  const warnings = [...changes.warnings];
-  const ctx = {
-    base,
-    head,
-    changes,
-    baseFiles,
-    headFiles,
-    hunks,
-    warn: (message) => {
-      if (!warnings.includes(message)) warnings.push(message);
-    }
-  };
-  for (const rule of rules) await rule.prepare(ctx);
   const docPaths = headFiles.filter((e) => e.kind === "file" && docFilter(e.path)).map((e) => e.path);
   const contents = await head.readFiles(docPaths);
   const findings = /* @__PURE__ */ new Map();
@@ -23701,7 +23681,7 @@ async function runCheck(base, head, changes, options) {
       if (ref.shadow || suppressed.has(ref.line) || hasHistoricalContext(ref.contextLine)) continue;
       for (const rule of rules) {
         if (!rule.kinds.includes(ref.kind)) continue;
-        const drift = rule.check(ref, { path: path2 });
+        const drift = evaluate(rule, ref, { path: path2 });
         if (drift === void 0) continue;
         const key = JSON.stringify([rule.id, path2, ref.line, ref.col, drift.fact]);
         if (findings.has(key)) continue;
@@ -23721,11 +23701,45 @@ async function runCheck(base, head, changes, options) {
       }
     }
   }
+  return [...findings.values()].sort(compareFindings);
+}
+
+// src/core/check.ts
+function disabledRuleIds(config) {
+  const keys = Object.keys(CHECK_RULE_IDS);
+  return new Set(keys.filter((key) => !config.checks[key]).map((key) => CHECK_RULE_IDS[key]));
+}
+async function runCheck(base, head, changes, options) {
+  const { repo, config, hunks = [] } = options;
+  const disabled = config ? disabledRuleIds(config) : /* @__PURE__ */ new Set();
+  const rules = options.rules.filter((rule) => !disabled.has(rule.id));
+  const [baseFiles, headFiles] = await Promise.all([base.listFiles(), head.listFiles()]);
+  const warnings = [...changes.warnings];
+  const ctx = {
+    base,
+    head,
+    changes,
+    baseFiles,
+    headFiles,
+    hunks,
+    warn: (message) => {
+      if (!warnings.includes(message)) warnings.push(message);
+    }
+  };
+  for (const rule of rules) await rule.prepare(ctx);
+  const findings = await collectFindings(head, headFiles, {
+    rules,
+    evaluate: (rule, ref, doc) => rule.check(ref, doc),
+    ...repo ? { repo } : {},
+    ...config ? { config } : {},
+    ...options.docFilter ? { docFilter: options.docFilter } : {}
+  });
   return {
     schemaVersion: FINDING_SCHEMA_VERSION,
+    mode: "diff",
     base: base.commit,
     head: head.commit,
-    findings: [...findings.values()].sort(compareFindings),
+    findings,
     warnings,
     failOn: config?.failOn ?? "none"
   };
@@ -24051,6 +24065,13 @@ function parseMakefile(text5) {
   finish();
   return targets;
 }
+var INCLUDE = /^(?:-?include|sinclude)\s+(.*)$/;
+function includedFiles(text5) {
+  return logicalLines(text5).flatMap((line) => {
+    const match = INCLUDE.exec(stripComment(line).trim());
+    return match?.[1] === void 0 ? [] : match[1].split(/\s+/).filter((name) => name !== "");
+  });
+}
 function isMakefile(entry) {
   if (entry.kind !== "file") return false;
   const base = posix2.basename(entry.path);
@@ -24061,11 +24082,24 @@ async function readMakefiles(snapshot, files) {
   const contents = await snapshot.readFiles(paths);
   return paths.map((path2) => ({
     path: path2,
-    targets: new Map(parseMakefile(contents.get(path2) ?? "").map((t) => [t.name, t.recipe]))
+    targets: new Map(parseMakefile(contents.get(path2) ?? "").map((t) => [t.name, t.recipe])),
+    includes: includedFiles(contents.get(path2) ?? "")
   }));
 }
 function inScope(files, dir) {
   return dir === "" ? [...files] : files.filter((f) => f.path.startsWith(`${dir}/`));
+}
+function hasUnreadInclude(file, makefiles) {
+  return file.includes.some((name) => {
+    const wanted = posix2.normalize(name).replace(/^(?:\.\/)+/, "");
+    return !makefiles.some((m) => m.path === wanted || m.path.endsWith(`/${wanted}`));
+  });
+}
+function buildableFile(paths, dir, name) {
+  const prefix = dir === "" ? name : `${dir}/${name}`;
+  if (paths.has(prefix)) return true;
+  for (const path2 of paths) if (path2.startsWith(`${prefix}.`) && !path2.slice(prefix.length + 1).includes("/")) return true;
+  return false;
 }
 function renamedTo2(before, after, name) {
   if (after === void 0) return void 0;
@@ -24086,7 +24120,7 @@ function makeTargetRule() {
         readMakefiles(ctx.base, ctx.baseFiles),
         readMakefiles(ctx.head, ctx.headFiles)
       ]);
-      state = { base, head };
+      state = { base, head, headPaths: new Set(ctx.headFiles.map((e) => e.path)) };
     },
     check(ref, doc) {
       if (state === void 0) throw new Error("makeTargetRule: prepare() must run before check()");
@@ -24104,6 +24138,20 @@ function makeTargetRule() {
         drift.suggestion = newName;
       }
       return drift;
+    },
+    scan(ref, doc) {
+      if (state === void 0) throw new Error("makeTargetRule: prepare() must run before scan()");
+      const cwd = ref.context?.cwd;
+      const dir = cwd === void 0 ? "" : resolveCwdDir(doc.path, cwd);
+      if (dir === void 0) return void 0;
+      const name = ref.normalized;
+      if (/[./]/.test(name)) return void 0;
+      const { head: makefiles, headPaths } = state;
+      const scope = inScope(makefiles, dir);
+      if (scope.length === 0 || scope.some((f) => f.targets.has(name))) return void 0;
+      if (scope.some((f) => hasUnreadInclude(f, makefiles))) return void 0;
+      if (buildableFile(headPaths, dir, name)) return void 0;
+      return { fact: `make:${name}`, message: `Make target \`${name}\` does not exist at this commit` };
     }
   };
 }
@@ -24251,6 +24299,20 @@ function pathRule() {
         if (suggestion !== void 0) drift.suggestion = suggestion;
       }
       return drift;
+    },
+    scan(ref, doc) {
+      const s = state;
+      if (s === void 0) throw new Error("pathRule: prepare() must run before scan()");
+      const candidates = candidatesFor(s.head, doc.path, ref.normalized);
+      const [first] = candidates;
+      if (first === void 0 || candidates.some((c) => exists(s.head, c.path))) return void 0;
+      const buildProduct = (path2) => underBuildDir(path2) || s.isIgnoredInHead(path2, false) || s.isIgnoredInHead(path2, true);
+      if (candidates.some((c) => buildProduct(c.path))) return void 0;
+      if (!/\.[A-Za-z0-9]+$/.test(first.path) && !ref.normalized.endsWith("/")) {
+        const hasParent = candidates.some((c) => posix3.dirname(c.path) === "." || exists(s.head, posix3.dirname(c.path)));
+        if (!hasParent) return void 0;
+      }
+      return { fact: first.path, message: `\`${ref.normalized}\` does not exist at this commit` };
     }
   };
 }
@@ -24269,6 +24331,14 @@ function resolveIn(set, ref, docPath) {
 function locatable(ref, docPath) {
   const cwd = ref.context?.cwd;
   return ref.context?.workspace !== void 0 || cwd === void 0 || resolveCwdDir(docPath, cwd) !== void 0;
+}
+var EXPLICIT_RUN = /(?:^|[\s`'"(])(?:npm|pnpm)\s(?:\S+\s)*?(?:run|run-script)\s(?:\S+\s)*$/;
+function isExplicitRun(ref) {
+  const manager = ref.context?.packageManager;
+  if (manager !== "npm" && manager !== "pnpm" || ref.contextLine.includes("--if-present")) return false;
+  const before = ref.contextLine.slice(0, ref.col - 1);
+  const command = before.split(/&&|\|\||[;|]/).pop() ?? "";
+  return EXPLICIT_RUN.test(command);
 }
 function labelOf(pkg) {
   return pkg.name ?? pkg.path;
@@ -24308,6 +24378,17 @@ function npmScriptRule() {
         drift.suggestion = newName;
       }
       return drift;
+    },
+    scan(ref, doc) {
+      if (packages === void 0) throw new Error("npmScriptRule: prepare() must run before scan()");
+      if (!isExplicitRun(ref) || !locatable(ref, doc.path)) return void 0;
+      const name = ref.normalized;
+      const target = resolveIn(packages.head, ref, doc.path);
+      if (target === void 0 || target.scripts.has(name)) return void 0;
+      return {
+        fact: `${target.path}#${name}`,
+        message: `npm script \`${name}\` (package \`${labelOf(target)}\`) does not exist at this commit`
+      };
     }
   };
 }
@@ -24315,6 +24396,43 @@ function npmScriptRule() {
 // src/core/rules/index.ts
 function defaultRules() {
   return [pathRule(), npmScriptRule(), binRule(), makeTargetRule(), envRule()];
+}
+
+// src/core/scan.ts
+var NO_CHANGES = { renamed: [], renamedDirs: [], deleted: [], added: [], modified: [], warnings: [] };
+async function scanSnapshot(head, options) {
+  const { repo, config } = options;
+  const disabled = config ? disabledRuleIds(config) : /* @__PURE__ */ new Set();
+  const rules = options.rules.filter((rule) => rule.scan !== void 0 && !disabled.has(rule.id));
+  const headFiles = await head.listFiles();
+  const warnings = [];
+  const ctx = {
+    base: head,
+    head,
+    changes: NO_CHANGES,
+    baseFiles: headFiles,
+    headFiles,
+    hunks: [],
+    warn: (message) => {
+      if (!warnings.includes(message)) warnings.push(message);
+    }
+  };
+  for (const rule of rules) await rule.prepare(ctx);
+  const findings = await collectFindings(head, headFiles, {
+    rules,
+    evaluate: (rule, ref, doc) => rule.scan?.(ref, doc),
+    ...repo ? { repo } : {},
+    ...config ? { config } : {},
+    ...options.docFilter ? { docFilter: options.docFilter } : {}
+  });
+  return {
+    schemaVersion: FINDING_SCHEMA_VERSION,
+    mode: "scan",
+    head: head.commit,
+    findings,
+    warnings,
+    failOn: config?.failOn ?? "none"
+  };
 }
 
 // src/core/snapshot.ts
@@ -24829,103 +24947,180 @@ async function runDiffCheck(dir, base, head, options = {}) {
     ...repo ? { repo } : {}
   });
 }
+async function runScan(dir, head, options = {}) {
+  const { repo: repoOverride, ...git } = options;
+  const root2 = await repositoryRoot(dir, git);
+  const [headSnapshot, slug] = await Promise.all([
+    openSnapshot(root2, head, git),
+    repoOverride ? Promise.resolve(void 0) : readRepoSlug(root2, git)
+  ]);
+  const repo = repoOverride ?? slug;
+  const config = await loadConfig(headSnapshot);
+  return scanSnapshot(headSnapshot, {
+    rules: defaultRules(),
+    config,
+    ...repo ? { repo } : {}
+  });
+}
+
+// src/cli/report.ts
+function formatJson(report) {
+  return `${JSON.stringify(report, null, 2)}
+`;
+}
+function plural(count, word) {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+function formatText(report) {
+  const { findings } = report;
+  if (findings.length === 0) return "0 findings\n";
+  const byFile = /* @__PURE__ */ new Map();
+  for (const finding of findings) {
+    const group = byFile.get(finding.file);
+    if (group) group.push(finding);
+    else byFile.set(finding.file, [finding]);
+  }
+  const position2 = (f) => `${f.line}:${f.col}`;
+  const width = Math.max(...findings.map((f) => position2(f).length));
+  let text5 = "";
+  for (const [file, group] of byFile) {
+    text5 += `${file}
+`;
+    for (const finding of group) {
+      text5 += `  ${position2(finding).padEnd(width)}  ${finding.message}
+`;
+      if (finding.suggestion !== void 0) text5 += `    -> ${finding.suggestion}
+`;
+    }
+    text5 += "\n";
+  }
+  return `${text5}${plural(findings.length, "finding")} in ${plural(byFile.size, "file")}
+`;
+}
+function formatWarnings(report) {
+  return report.warnings.map((warning) => `warning: ${warning}
+`).join("");
+}
 
 // src/cli/check.ts
 var OUTPUT_FORMATS = ["text", "json"];
-function formatJson(result) {
-  return `${JSON.stringify(result, null, 2)}
-`;
+var FAIL_ON_VALUES = ["none", "warning"];
+function exitCodeFor(report, failOn) {
+  return (failOn ?? report.failOn) === "warning" && report.findings.length > 0 ? 1 : 0;
 }
-function formatText(result) {
-  let text5 = "";
-  for (const finding of result.findings) {
-    text5 += `${finding.file}:${finding.line}:${finding.col}  ${finding.message}
-`;
-    if (finding.suggestion !== void 0) text5 += `  suggestion: ${finding.suggestion}
-`;
+function printReport(report, options, io) {
+  io.stdout(options.format === "json" ? formatJson(report) : formatText(report));
+  io.stderr(formatWarnings(report));
+  return exitCodeFor(report, options.failOn);
+}
+function reportFailure(error, io) {
+  if (error instanceof ConfigError) {
+    io.stderr(`drift-ci: ${error.message}
+`);
+    return 2;
   }
-  const count = result.findings.length;
-  return `${text5}${count} ${count === 1 ? "finding" : "findings"}
-`;
-}
-function formatWarnings(result) {
-  return result.warnings.map((warning) => `warning: ${warning}
-`).join("");
+  if (error instanceof GitError) {
+    io.stderr(`drift-ci: ${error.message.split("\n")[0]}
+`);
+    return 2;
+  }
+  throw error;
 }
 async function runCheckCommand(options, io) {
-  const { base, head, cwd, format } = options;
+  const { base, head, cwd, format, failOn } = options;
   let result;
   try {
     result = await runDiffCheck(cwd, base, head);
   } catch (error) {
-    if (error instanceof ConfigError) {
-      io.stderr(`drift-ci: ${error.message}
-`);
-      return 2;
-    }
-    if (error instanceof GitError) {
-      io.stderr(`drift-ci: ${error.message.split("\n")[0]}
-`);
-      return 2;
-    }
-    throw error;
+    return reportFailure(error, io);
   }
-  io.stdout(format === "json" ? formatJson(result) : formatText(result));
-  io.stderr(formatWarnings(result));
-  return 0;
+  return printReport(result, { format, ...failOn ? { failOn } : {} }, io);
+}
+
+// src/cli/scan.ts
+function scanBanner(head) {
+  return `scan mode (beta): references in docs at ${head.slice(0, 7)} that do not exist there (paths, npm scripts, make targets only); expect false positives
+`;
+}
+async function runScanCommand(options, io) {
+  const { head, cwd, format, failOn } = options;
+  let result;
+  try {
+    result = await runScan(cwd, head);
+  } catch (error) {
+    return reportFailure(error, io);
+  }
+  io.stderr(scanBanner(result.head));
+  return printReport(result, { format, ...failOn ? { failOn } : {} }, io);
 }
 
 // src/cli/main.ts
 var VERSION = true ? "0.0.0" : "0.0.0-dev";
 var HELP = `Usage: drift-ci [check] [options]
+       drift-ci scan [options]   (beta)
 
 Checks docs and AI-agent context files for references to things renamed or
-removed between two commits. \`check\` is the only command; it is the default.
+removed between two commits (\`check\`, the default), or for references that
+do not exist at one commit (\`scan\`, beta: expect false positives; paths,
+npm scripts and make targets only).
 
 Options:
-  --base <ref>       Base commit (default: HEAD^)
-  --head <ref>       Head commit (default: HEAD)
-  --cwd <dir>        Repository directory (default: current directory)
-  --format <format>  Output format: text or json (default: text)
-  -h, --help         Show this help
-  -v, --version      Show the version
+  --base <ref>         check: base commit (default: HEAD^)
+  --head <ref>         Head commit (default: HEAD)
+  --cwd <dir>          Repository directory (default: current directory)
+  --format <format>    Output format: text or json (default: text)
+  --fail-on <level>    none or warning: exit 1 when there are findings and
+                       the level is warning (default: failOn of
+                       .drift-ci.yml, else none)
+  -h, --help           Show this help
+  -v, --version        Show the version
+
+Exit codes: 0 ok, 1 findings with failOn warning, 2 usage or runtime error.
 `;
+var VALUE_FLAGS = {
+  check: ["--base", "--head", "--cwd", "--format", "--fail-on"],
+  scan: ["--head", "--cwd", "--format", "--fail-on"]
+};
 function parseArgs(argv, defaultCwd) {
+  const command = argv[0] === "scan" ? "scan" : "check";
   const options = { base: "HEAD^", head: "HEAD", cwd: defaultCwd, format: "text" };
-  const args = argv[0] === "check" ? argv.slice(1) : argv;
+  let failOn;
+  const args = argv[0] === "check" || argv[0] === "scan" ? argv.slice(1) : argv;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    switch (arg) {
-      case "-h":
-      case "--help":
-        return { kind: "help" };
-      case "-v":
-      case "--version":
-        return { kind: "version" };
-      case "--base":
-      case "--head":
-      case "--cwd":
-      case "--format": {
-        const value2 = args[i + 1];
-        if (value2 === void 0 || value2.startsWith("-")) {
-          return { kind: "error", message: `${arg} needs a value` };
-        }
-        if (arg === "--format") {
-          if (!OUTPUT_FORMATS.includes(value2)) {
-            return { kind: "error", message: `unknown format: ${value2} (expected json or text)` };
-          }
-          options.format = value2;
-        } else {
-          options[arg.slice(2)] = value2;
-        }
-        i++;
-        break;
+    if (arg === "-h" || arg === "--help") return { kind: "help" };
+    if (arg === "-v" || arg === "--version") return { kind: "version" };
+    if (arg === void 0 || !VALUE_FLAGS[command].includes(arg)) {
+      if (command === "scan" && arg === "--base") {
+        return { kind: "error", message: "--base is not supported by scan (it looks at one commit)" };
       }
-      default:
-        return { kind: "error", message: `unknown argument: ${String(arg)}` };
+      return { kind: "error", message: `unknown argument: ${String(arg)}` };
     }
+    const value2 = args[i + 1];
+    if (value2 === void 0 || value2.startsWith("-")) {
+      return { kind: "error", message: `${arg} needs a value` };
+    }
+    if (arg === "--format") {
+      if (!OUTPUT_FORMATS.includes(value2)) {
+        return { kind: "error", message: `unknown format: ${value2} (expected json or text)` };
+      }
+      options.format = value2;
+    } else if (arg === "--fail-on") {
+      if (!FAIL_ON_VALUES.includes(value2)) {
+        return { kind: "error", message: `unknown --fail-on value: ${value2} (expected none or warning)` };
+      }
+      failOn = value2;
+    } else {
+      options[arg.slice(2)] = value2;
+    }
+    i++;
   }
-  return { kind: "run", options };
+  const withFailOn = failOn === void 0 ? {} : { failOn };
+  if (command === "scan") {
+    const { head, cwd, format } = options;
+    return { kind: "scan", options: { head, cwd, format, ...withFailOn } };
+  }
+  return { kind: "run", options: { ...options, ...withFailOn } };
 }
 async function run(argv, io) {
   const parsed = parseArgs(argv, io.cwd);
@@ -24944,6 +25139,8 @@ ${HELP}`);
       return 2;
     case "run":
       return runCheckCommand(parsed.options, io);
+    case "scan":
+      return runScanCommand(parsed.options, io);
   }
 }
 

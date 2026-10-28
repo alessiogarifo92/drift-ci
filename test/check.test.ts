@@ -46,7 +46,7 @@ describe('runCheck', () => {
     const base = memorySnapshot({}, { commit: 'a'.repeat(40) });
     const head = memorySnapshot({}, { commit: 'b'.repeat(40) });
     const result = await runCheck(base, head, changeSet(), { rules: [] });
-    expect(result).toEqual({ schemaVersion: 1, base: 'a'.repeat(40), head: 'b'.repeat(40), findings: [], warnings: [], failOn: 'none' });
+    expect(result).toEqual({ schemaVersion: 1, mode: 'diff', base: 'a'.repeat(40), head: 'b'.repeat(40), findings: [], warnings: [], failOn: 'none' });
   });
 
   it('prepares each rule once with the listings fetched once', async () => {

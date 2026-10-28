@@ -33,7 +33,7 @@ describe('drift-ci check with a .drift-ci.yml in the head commit', () => {
     repo.git('commit', '--quiet', '-m', 'drop the config');
     const io = capture(repo.dir);
     expect(await run(['--base', repo.baseSha], io)).toBe(0);
-    expect(io.out).toMatch(/^README\.md:3:15 .*\n1 finding\n$/);
+    expect(io.out).toMatch(/^README\.md\n {2}3:15 {2}.*\n\n1 finding in 1 file\n$/);
   });
 
   it('finds no path drift when the config disables checks.paths', async () => {
@@ -55,7 +55,8 @@ describe('drift-ci check with a .drift-ci.yml in the head commit', () => {
   it('applies docs excludes and ignore entries, and carries failOn in the JSON result', async () => {
     const repo = repoFor('config-ignore');
     const io = capture(repo.dir);
-    expect(await run(['--format', 'json'], io)).toBe(0);
+    // The config says failOn: warning and one finding remains: exit 1.
+    expect(await run(['--format', 'json'], io)).toBe(1);
     const result = JSON.parse(io.out) as CheckResult;
     // docs/CHANGELOG.md is excluded by default and docs/guide.md is ignored: only the README remains.
     expect(result.findings.map((f) => f.file)).toEqual(['README.md']);

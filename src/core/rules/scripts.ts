@@ -22,6 +22,22 @@ function locatable(ref: Reference, docPath: string): boolean {
   return ref.context?.workspace !== undefined || cwd === undefined || resolveCwdDir(docPath, cwd) !== undefined;
 }
 
+/** `npm run x` / `pnpm run x`: the only forms that run nothing but a package.json script. */
+const EXPLICIT_RUN = /(?:^|[\s`'"(])(?:npm|pnpm)\s(?:\S+\s)*?(?:run|run-script)\s(?:\S+\s)*$/;
+
+/**
+ * Whether the reference is the script of an explicit `npm run` / `pnpm run` (not `npm start`, which runs
+ * `server.js` without a script, nor `pnpm x`, `yarn x`, `bun run x`, which may run a bin or a file), the
+ * only forms scan mode trusts. `--if-present` makes a missing script fine.
+ */
+function isExplicitRun(ref: Reference): boolean {
+  const manager = ref.context?.packageManager;
+  if ((manager !== 'npm' && manager !== 'pnpm') || ref.contextLine.includes('--if-present')) return false;
+  const before = ref.contextLine.slice(0, ref.col - 1);
+  const command = before.split(/&&|\|\||[;|]/).pop() ?? '';
+  return EXPLICIT_RUN.test(command);
+}
+
 function labelOf(pkg: PackageInfo): string {
   return pkg.name ?? pkg.path;
 }
@@ -41,7 +57,8 @@ function renamedTo(before: PackageInfo, after: PackageInfo | undefined, name: st
  * Flags an npm script reference whose script exists in the package it resolves to in base and not in the
  * head version of that package. Implicit scripts (`npm test`, `npm start`...) follow the same rule: only a
  * script defined in base `scripts` and gone in head is flagged. A package.json that does not parse is
- * warned about and ignored on both sides. A factory: the rule keeps its inventories for one run.
+ * warned about and ignored on both sides. In scan mode only an explicit `npm run` / `pnpm run` of a script the
+ * resolved package lacks is flagged. A factory: the rule keeps its inventories for one run.
  */
 export function npmScriptRule(): Rule {
   let packages: Packages | undefined;
@@ -78,6 +95,19 @@ export function npmScriptRule(): Rule {
         drift.suggestion = newName;
       }
       return drift;
+    },
+
+    scan(ref, doc): Drift | undefined {
+      if (packages === undefined) throw new Error('npmScriptRule: prepare() must run before scan()');
+      if (!isExplicitRun(ref) || !locatable(ref, doc.path)) return undefined;
+
+      const name = ref.normalized;
+      const target = resolveIn(packages.head, ref, doc.path);
+      if (target === undefined || target.scripts.has(name)) return undefined;
+      return {
+        fact: `${target.path}#${name}`,
+        message: `npm script \`${name}\` (package \`${labelOf(target)}\`) does not exist at this commit`,
+      };
     },
   };
 }

@@ -2,6 +2,110 @@
 
 Checks every pull request for docs and AI-agent context files (AGENTS.md, CLAUDE.md, .cursorrules, copilot-instructions) that reference things the PR renamed or removed, and flags the exact lines before merge.
 
+## CLI
+
+Requires Node 22 or later and git. The CLI reads commits straight from git, never the working tree.
+
+```sh
+drift-ci check [--base <ref>] [--head <ref>] [--cwd <dir>] [--format text|json] [--fail-on none|warning]
+drift-ci scan  [--head <ref>] [--cwd <dir>] [--format text|json] [--fail-on none|warning]   # beta
+```
+
+A bare `drift-ci` is `drift-ci check`.
+
+### `check`
+
+Compares the docs of `--head` with what changed since `--base` and reports every reference the change renamed or removed: file paths, npm scripts, Make targets, bins and environment variables. A reference is reported only when it pointed at something in the base commit and points at nothing in the head commit, so drift that was already there, and docs already fixed in the same change, are never reported.
+
+| Option | Default | |
+|---|---|---|
+| `--base <ref>` | `HEAD^` | Commit to compare against. |
+| `--head <ref>` | `HEAD` | Commit whose docs are checked. |
+| `--cwd <dir>` | current directory | Any directory inside the repository. |
+| `--format <format>` | `text` | `text` or `json`. |
+| `--fail-on <level>` | `failOn` of `.drift-ci.yml`, else `none` | `warning` makes findings fail the run. |
+
+Docs, checks, ignores and `failOn` come from `.drift-ci.yml` at the root of the head commit.
+
+### `scan` (beta)
+
+Looks at one commit, with no base: it reports references in the docs that do not exist at `--head`. Use it to audit a repository that has never been checked. It is a beta: with no change to prove a reference once worked, expect false positives (a doc may legitimately name a file of another repository).
+
+Scan reports only references it can judge from the commit alone:
+
+- **Paths** that exist nowhere they could resolve. Paths under a build directory or ignored by a `.gitignore` are skipped, and so is a token like `owner/repo` that has no extension, no trailing `/` and no existing parent directory.
+- **npm scripts** written as `npm run <script>` or `pnpm run <script>` that the resolved `package.json` does not define. `npm start`, `pnpm <script>`, `yarn` and `bun` forms are skipped: they can run a file or a dependency's bin.
+- **Make targets** that no makefile in scope defines, only when there is such a makefile, it includes nothing scan cannot read, and no file of that name exists.
+
+Scan never reports environment variables (they need the diff to be told apart from variables the project still reads) and never reports bins (a command name cannot be told from any other program). It takes no `--base`. Its text output starts with a `scan mode (beta): ...` line on stderr.
+
+### Output
+
+Text, the default, groups findings by file:
+
+```text
+README.md
+  3:15  `src/old.ts` was renamed to `lib/new.ts` in this change
+    -> lib/new.ts
+
+docs/dev.md
+  10:2  npm script `build` (package `app`) was removed in this change
+
+2 findings in 2 files
+```
+
+Each line is `line:column  message`; `->` introduces the replacement text the doc should use, when git or the manifests show where the thing went. With no findings the output is `0 findings`. Warnings (a `package.json` that does not parse, a rename limit that was hit) go to stderr as `warning: ...` lines, never to stdout.
+
+`--format json` prints one document, two-space indented, on stdout:
+
+```json
+{
+  "schemaVersion": 1,
+  "mode": "diff",
+  "base": "<full SHA>",
+  "head": "<full SHA>",
+  "findings": [
+    {
+      "ruleId": "path",
+      "kind": "path",
+      "fact": "src/old.ts",
+      "file": "README.md",
+      "line": 3,
+      "col": 15,
+      "message": "`src/old.ts` was renamed to `lib/new.ts` in this change",
+      "fingerprint": "0123456789abcdef",
+      "suggestion": "lib/new.ts"
+    }
+  ],
+  "warnings": [],
+  "failOn": "none"
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `schemaVersion` | Version of this schema; `1` today. Fields are only ever added within a version. |
+| `mode` | `diff` for `check`, `scan` for `scan`. |
+| `base` | Full SHA of the base commit. Absent in `scan`. |
+| `head` | Full SHA of the head (or scanned) commit. |
+| `findings[].ruleId` | `path`, `npm-script`, `make-target`, `bin` or `env` (`scan`: never `bin` or `env`). |
+| `findings[].kind` | Kind of reference: `path`, `npm-script`, `make-target`, `command` or `env`. |
+| `findings[].fact` | What drifted, e.g. a repo-relative path or `package.json#build`. |
+| `findings[].file`, `line`, `col` | Where the doc mentions it; 1-indexed, columns in UTF-16 code units. |
+| `findings[].message` | What happened to it. |
+| `findings[].suggestion` | Optional. The replacement text, in the style the doc used. Never present in `scan`. |
+| `findings[].fingerprint` | Stable id of the finding; survives unrelated edits above it. |
+| `warnings` | Conditions that may make the result incomplete. |
+| `failOn` | The `failOn` setting of `.drift-ci.yml`, `none` without one. `--fail-on` does not change it. |
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | The run completed, and either there are no findings or `failOn` is `none`. |
+| `1` | There are findings and the effective `failOn` (`--fail-on`, else `.drift-ci.yml`) is `warning`. Findings are still printed. |
+| `2` | Usage or runtime error: unknown option or subcommand, unknown ref, not a git repository, invalid `.drift-ci.yml`. Nothing is printed on stdout. |
+
 ## GitHub Action
 
 Add `.github/workflows/drift.yml`:

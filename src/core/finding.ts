@@ -9,7 +9,7 @@ export const FINDING_SCHEMA_VERSION = 1;
 export type FailOn = 'none' | 'warning';
 
 export interface Finding {
-  /** The rule that reported it: `path` today; later `npm-script`, `make-target`, `bin`, `env`. */
+  /** The rule that reported it: `path`, `npm-script`, `make-target`, `bin` or `env` (scan mode: never `bin` or `env`). */
   ruleId: string;
   /** Kind of the reference that triggered it. */
   kind: ReferenceKind;
@@ -30,6 +30,7 @@ export interface Finding {
 /** The JSON document `drift-ci check --format json` prints. */
 export interface CheckResult {
   schemaVersion: typeof FINDING_SCHEMA_VERSION;
+  mode: 'diff';
   /** Full SHA of the base commit. */
   base: string;
   /** Full SHA of the head commit. */
@@ -39,6 +40,20 @@ export interface CheckResult {
   /** The `failOn` setting of the head's config, for the exit code; `none` without a config. */
   failOn: FailOn;
 }
+
+/** The JSON document `drift-ci scan --format json` prints (beta): `CheckResult` without a base. */
+export interface ScanResult {
+  schemaVersion: typeof FINDING_SCHEMA_VERSION;
+  mode: 'scan';
+  /** Full SHA of the scanned commit. */
+  head: string;
+  findings: Finding[];
+  warnings: string[];
+  failOn: FailOn;
+}
+
+/** What a reporter prints: the result of either mode. */
+export type Report = CheckResult | ScanResult;
 
 /**
  * First 16 hex characters of the SHA-256 of `[ruleId, fact, file, normalizedLine]`, where the

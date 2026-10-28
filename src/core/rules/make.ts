@@ -114,6 +114,18 @@ export function parseMakefile(text: string): MakeTarget[] {
 interface MakeFile {
   path: string;
   targets: ReadonlyMap<string, string>;
+  /** Files named by `include`, `-include` and `sinclude` lines, as written. */
+  includes: readonly string[];
+}
+
+const INCLUDE = /^(?:-?include|sinclude)\s+(.*)$/;
+
+/** The files the makefile includes, as written: `include a.mk b.mk` names two. */
+function includedFiles(text: string): string[] {
+  return logicalLines(text).flatMap((line) => {
+    const match = INCLUDE.exec(stripComment(line).trim());
+    return match?.[1] === undefined ? [] : match[1].split(/\s+/).filter((name) => name !== '');
+  });
 }
 
 function isMakefile(entry: SnapshotEntry): boolean {
@@ -128,12 +140,29 @@ async function readMakefiles(snapshot: RepoSnapshot, files: readonly SnapshotEnt
   return paths.map((path) => ({
     path,
     targets: new Map(parseMakefile(contents.get(path) ?? '').map((t) => [t.name, t.recipe])),
+    includes: includedFiles(contents.get(path) ?? ''),
   }));
 }
 
 /** The makefiles a reference may be about: everything under its cwd, else every makefile of the commit. */
 function inScope(files: readonly MakeFile[], dir: string): MakeFile[] {
   return dir === '' ? [...files] : files.filter((f) => f.path.startsWith(`${dir}/`));
+}
+
+/** Whether the makefile includes a file this rule does not read (anything but another makefile it has). */
+function hasUnreadInclude(file: MakeFile, makefiles: readonly MakeFile[]): boolean {
+  return file.includes.some((name) => {
+    const wanted = posix.normalize(name).replace(/^(?:\.\/)+/, '');
+    return !makefiles.some((m) => m.path === wanted || m.path.endsWith(`/${wanted}`));
+  });
+}
+
+/** Whether `make <name>` could build a file: `<dir>/<name>` exists, or a source such as `<name>.c` does (implicit rules). */
+function buildableFile(paths: ReadonlySet<string>, dir: string, name: string): boolean {
+  const prefix = dir === '' ? name : `${dir}/${name}`;
+  if (paths.has(prefix)) return true;
+  for (const path of paths) if (path.startsWith(`${prefix}.`) && !path.slice(prefix.length + 1).includes('/')) return true;
+  return false;
 }
 
 /** The new name when the makefile that defined `name` lost exactly it and gained exactly one target with the same recipe. */
@@ -150,10 +179,12 @@ function renamedTo(before: MakeFile, after: MakeFile | undefined, name: string):
 /**
  * Flags a make-target reference whose target is defined by a makefile of its scope in base and by none in head.
  * Scope: with a relative `cwd` (`make -C dir`, `cd dir`) every makefile under that directory, otherwise every
- * `Makefile`, `GNUmakefile` and `*.mk` of the commit. A factory: the rule keeps its inventories for one run.
+ * `Makefile`, `GNUmakefile` and `*.mk` of the commit. In scan mode a plain target name is flagged when the
+ * scope has a makefile, none defines it, none includes a file this rule cannot read and no file of that name (or
+ * `name.*` source) exists. A factory: the rule keeps its inventories for one run.
  */
 export function makeTargetRule(): Rule {
-  let state: { base: MakeFile[]; head: MakeFile[] } | undefined;
+  let state: { base: MakeFile[]; head: MakeFile[]; headPaths: ReadonlySet<string> } | undefined;
 
   return {
     id: 'make-target',
@@ -164,7 +195,7 @@ export function makeTargetRule(): Rule {
         readMakefiles(ctx.base, ctx.baseFiles),
         readMakefiles(ctx.head, ctx.headFiles),
       ]);
-      state = { base, head };
+      state = { base, head, headPaths: new Set(ctx.headFiles.map((e) => e.path)) };
     },
 
     check(ref, doc): Drift | undefined {
@@ -186,6 +217,24 @@ export function makeTargetRule(): Rule {
         drift.suggestion = newName;
       }
       return drift;
+    },
+
+    scan(ref, doc): Drift | undefined {
+      if (state === undefined) throw new Error('makeTargetRule: prepare() must run before scan()');
+
+      const cwd = ref.context?.cwd;
+      const dir = cwd === undefined ? '' : resolveCwdDir(doc.path, cwd);
+      if (dir === undefined) return undefined;
+
+      const name = ref.normalized;
+      // `make main.o` may be built by a pattern rule (the parser skips those): only plain names are judged.
+      if (/[./]/.test(name)) return undefined;
+      const { head: makefiles, headPaths } = state;
+      const scope = inScope(makefiles, dir);
+      if (scope.length === 0 || scope.some((f) => f.targets.has(name))) return undefined;
+      if (scope.some((f) => hasUnreadInclude(f, makefiles))) return undefined;
+      if (buildableFile(headPaths, dir, name)) return undefined;
+      return { fact: `make:${name}`, message: `Make target \`${name}\` does not exist at this commit` };
     },
   };
 }

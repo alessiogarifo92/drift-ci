@@ -168,6 +168,8 @@ function describeChange(fact: string, movedTo: string | undefined): string {
  * existed in base is gone and no candidate exists in head.
  *
  * Removed paths under a build directory or ignored by the head `.gitignore` files are not reported.
+ * In scan mode a reference is flagged when no candidate exists in head (the same two exemptions apply, and
+ * a token with neither extension nor trailing `/` must sit in a directory that exists).
  * A factory: the rule keeps its inventories for one run.
  */
 export function pathRule(): Rule {
@@ -212,6 +214,25 @@ export function pathRule(): Rule {
         if (suggestion !== undefined) drift.suggestion = suggestion;
       }
       return drift;
+    },
+
+    scan(ref, doc): Drift | undefined {
+      const s = state;
+      if (s === undefined) throw new Error('pathRule: prepare() must run before scan()');
+
+      const candidates = candidatesFor(s.head, doc.path, ref.normalized);
+      const [first] = candidates;
+      if (first === undefined || candidates.some((c) => exists(s.head, c.path))) return undefined;
+      // Without a base nothing says whether the path is a file or a directory: ignore both readings.
+      const buildProduct = (path: string) =>
+        underBuildDir(path) || s.isIgnoredInHead(path, false) || s.isIgnoredInHead(path, true);
+      if (candidates.some((c) => buildProduct(c.path))) return undefined;
+      // `owner/repo`, `and/or`: without an extension or a trailing `/` the token is only a path when it sits in a directory that exists.
+      if (!/\.[A-Za-z0-9]+$/.test(first.path) && !ref.normalized.endsWith('/')) {
+        const hasParent = candidates.some((c) => posix.dirname(c.path) === '.' || exists(s.head, posix.dirname(c.path)));
+        if (!hasParent) return undefined;
+      }
+      return { fact: first.path, message: `\`${ref.normalized}\` does not exist at this commit` };
     },
   };
 }

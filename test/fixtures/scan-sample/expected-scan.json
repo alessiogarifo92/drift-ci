@@ -1,0 +1,5 @@
+[
+  {"ruleId":"npm-script","file":"README.md","line":3,"col":36},
+  {"ruleId":"path","file":"README.md","line":4,"col":37},
+  {"ruleId":"make-target","file":"README.md","line":6,"col":26}
+]

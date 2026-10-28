@@ -169,6 +169,7 @@ export function finding(overrides: Omit<Partial<Finding>, 'suggestion'> & { sugg
 export function checkResult(findings: Finding[] = [], overrides: Partial<CheckResult> = {}): CheckResult {
   return {
     schemaVersion: 1,
+    mode: 'diff',
     base: BASE_SHA,
     head: HEAD_SHA,
     findings,

@@ -43,4 +43,10 @@ export interface Rule {
   prepare(ctx: CheckContext): Promise<void>;
   /** Drift for one non-shadow reference found in a head doc, or `undefined`. */
   check(ref: Reference, doc: { path: string }): Drift | undefined;
+  /**
+   * Scan mode (beta): drift for a non-shadow reference that resolves to nothing at head, judged without a
+   * base (no `renamed`, no suggestion). Called after `prepare` on a context whose base is the head. A rule
+   * without it (env, bin) takes no part in a scan: it is neither prepared nor asked.
+   */
+  scan?(ref: Reference, doc: { path: string }): Drift | undefined;
 }
