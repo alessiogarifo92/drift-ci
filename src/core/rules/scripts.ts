@@ -1,0 +1,83 @@
+// npm-script rule: a script reference in a head doc has drifted when the package it resolves to defined that
+// script in base and no longer does in head (docs/decisions.md, phase 3). Scripts are keyed by (package, name).
+import type { Reference } from '../reference.ts';
+import type { Drift, Rule } from '../rules.ts';
+import { loadPackages, resolveCwdDir, type PackageInfo, type PackageSet, type Packages } from './packages.ts';
+
+/** The package a reference points to on one side: `-w`/`--filter` workspace, else cwd, else the doc's directory. */
+function resolveIn(set: PackageSet, ref: Reference, docPath: string): PackageInfo | undefined {
+  const workspace = ref.context?.workspace;
+  if (workspace !== undefined) return set.byWorkspace(workspace);
+  const cwd = ref.context?.cwd;
+  if (cwd !== undefined) {
+    const dir = resolveCwdDir(docPath, cwd);
+    return dir === undefined ? undefined : set.nearest(dir);
+  }
+  return set.nearest(resolveCwdDir(docPath, '.') ?? '');
+}
+
+/** Whether the reference names a place this rule can locate at all (a cwd like `/srv` or `$DIR` cannot be). */
+function locatable(ref: Reference, docPath: string): boolean {
+  const cwd = ref.context?.cwd;
+  return ref.context?.workspace !== undefined || cwd === undefined || resolveCwdDir(docPath, cwd) !== undefined;
+}
+
+function labelOf(pkg: PackageInfo): string {
+  return pkg.name ?? pkg.path;
+}
+
+/** The new name when exactly one script went away, exactly one appeared, and both run the same command. */
+function renamedTo(before: PackageInfo, after: PackageInfo | undefined, name: string): string | undefined {
+  if (after === undefined) return undefined;
+  const removed = [...before.scripts.keys()].filter((key) => !after.scripts.has(key));
+  const added = [...after.scripts.keys()].filter((key) => !before.scripts.has(key));
+  if (removed.length !== 1 || removed[0] !== name || added.length !== 1) return undefined;
+  const [newName] = added as [string];
+  const body = before.scripts.get(name)?.trim();
+  return body !== undefined && body !== '' && body === after.scripts.get(newName)?.trim() ? newName : undefined;
+}
+
+/**
+ * Flags an npm script reference whose script exists in the package it resolves to in base and not in the
+ * head version of that package. Implicit scripts (`npm test`, `npm start`...) follow the same rule: only a
+ * script defined in base `scripts` and gone in head is flagged. A package.json that does not parse is
+ * warned about and ignored on both sides. A factory: the rule keeps its inventories for one run.
+ */
+export function npmScriptRule(): Rule {
+  let packages: Packages | undefined;
+
+  return {
+    id: 'npm-script',
+    kinds: ['npm-script'],
+
+    async prepare(ctx) {
+      packages = await loadPackages(ctx);
+    },
+
+    check(ref, doc): Drift | undefined {
+      if (packages === undefined) throw new Error('npmScriptRule: prepare() must run before check()');
+      if (!locatable(ref, doc.path)) return undefined;
+
+      const name = ref.normalized;
+      const before = resolveIn(packages.base, ref, doc.path);
+      if (before === undefined || !before.scripts.has(name)) return undefined; // never existed: not drift
+
+      // A renamed package keeps its place: fall back to the directory the base package lived in.
+      const after =
+        resolveIn(packages.head, ref, doc.path) ??
+        (ref.context?.workspace !== undefined ? packages.head.at(before.dir) : undefined);
+      if (after?.scripts.has(name)) return undefined;
+
+      const drift: Drift = {
+        fact: `${before.path}#${name}`,
+        message: `npm script \`${name}\` (package \`${labelOf(before)}\`) was removed in this change`,
+      };
+      const newName = renamedTo(before, after, name);
+      if (newName !== undefined) {
+        drift.message = `npm script \`${name}\` (package \`${labelOf(before)}\`) was renamed to \`${newName}\` in this change`;
+        drift.suggestion = newName;
+      }
+      return drift;
+    },
+  };
+}

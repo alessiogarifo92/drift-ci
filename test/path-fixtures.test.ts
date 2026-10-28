@@ -56,6 +56,12 @@ describe('default rules on fixture repositories', () => {
         'env-still-in-compose',
         'env-still-in-workflow',
         'env-renamed',
+        'script-renamed',
+        'script-workspace-removed',
+        'script-invalid-package-json',
+        'make-target-moved',
+        'make-multi-target',
+        'bin-renamed',
       ]),
     );
   });
@@ -72,7 +78,10 @@ describe('default rules on fixture repositories', () => {
       ...(suggestion === undefined ? {} : { suggestion }),
     }));
     expect(actual).toEqual(expected);
-    expect(result.warnings).toEqual([]);
+    // Optional `expected-warnings.json`: one substring per warning (parser messages vary by Node version).
+    const warningsFile = join(FIXTURES_DIR, name, 'expected-warnings.json');
+    const expectedWarnings = existsSync(warningsFile) ? (JSON.parse(readFileSync(warningsFile, 'utf8')) as string[]) : [];
+    expect(result.warnings).toEqual(expectedWarnings.map((text) => expect.stringContaining(text)));
     expect(result.base).toBe(repo.baseSha);
     expect(result.head).toBe(repo.headSha);
   });

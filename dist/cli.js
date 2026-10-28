@@ -1167,9 +1167,9 @@ var require_parse = __commonJS({
                 const idx = prev.value.lastIndexOf("[");
                 const pre = prev.value.slice(0, idx);
                 const rest2 = prev.value.slice(idx + 2);
-                const posix2 = POSIX_REGEX_SOURCE[rest2];
-                if (posix2) {
-                  prev.value = pre + posix2;
+                const posix4 = POSIX_REGEX_SOURCE[rest2];
+                if (posix4) {
+                  prev.value = pre + posix4;
                   state.backtrack = true;
                   advance();
                   if (!bos.output && tokens.indexOf(prev) === 1) {
@@ -1686,7 +1686,7 @@ var require_picomatch = __commonJS({
         throw new TypeError("Expected pattern to be a non-empty string");
       }
       const opts = options || {};
-      const posix2 = opts.windows;
+      const posix4 = opts.windows;
       const regex = isState ? picomatch2.compileRe(glob, options) : picomatch2.makeRe(glob, options, false, true);
       const state = regex.state;
       delete regex.state;
@@ -1696,8 +1696,8 @@ var require_picomatch = __commonJS({
         isIgnored = picomatch2(opts.ignore, ignoreOpts, returnState);
       }
       const matcher = (input, returnObject = false) => {
-        const { isMatch, match, output } = picomatch2.test(input, regex, options, { glob, posix: posix2 });
-        const result = { glob, state, regex, posix: posix2, input, output, match, isMatch };
+        const { isMatch, match, output } = picomatch2.test(input, regex, options, { glob, posix: posix4 });
+        const result = { glob, state, regex, posix: posix4, input, output, match, isMatch };
         if (typeof opts.onResult === "function") {
           opts.onResult(result);
         }
@@ -1722,7 +1722,7 @@ var require_picomatch = __commonJS({
       }
       return matcher;
     };
-    picomatch2.test = (input, regex, options, { glob, posix: posix2 } = {}) => {
+    picomatch2.test = (input, regex, options, { glob, posix: posix4 } = {}) => {
       if (typeof input !== "string") {
         throw new TypeError("Expected input to be a string");
       }
@@ -1730,7 +1730,7 @@ var require_picomatch = __commonJS({
         return { isMatch: false, output: "" };
       }
       const opts = options || {};
-      const format = opts.format || (posix2 ? utils.toPosixSlashes : null);
+      const format = opts.format || (posix4 ? utils.toPosixSlashes : null);
       let match = input === glob;
       let output = match && format ? format(input) : input;
       if (match === false) {
@@ -1739,16 +1739,16 @@ var require_picomatch = __commonJS({
       }
       if (match === false || opts.capture === true) {
         if (opts.matchBase === true || opts.basename === true) {
-          match = picomatch2.matchBase(input, regex, options, posix2);
+          match = picomatch2.matchBase(input, regex, options, posix4);
         } else {
           match = regex.exec(output);
         }
       }
       return { isMatch: Boolean(match), match, output };
     };
-    picomatch2.matchBase = (input, glob, options, posix2 = options && options.windows) => {
+    picomatch2.matchBase = (input, glob, options, posix4 = options && options.windows) => {
       const regex = glob instanceof RegExp ? glob : picomatch2.makeRe(glob, options);
-      return regex.test(utils.basename(input, { windows: posix2 }));
+      return regex.test(utils.basename(input, { windows: posix4 }));
     };
     picomatch2.isMatch = (str, patterns, options) => picomatch2(patterns, options)(str);
     picomatch2.parse = (pattern, options) => {
@@ -10123,14 +10123,14 @@ var require_ignore = __commonJS({
         return this.add(pattern);
       }
       // @returns {TestResult}
-      _test(originalPath, cache) {
+      _test(originalPath, cache2) {
         const path2 = originalPath && checkPath.convert(originalPath);
         checkPath(
           path2,
           originalPath,
           this._strictPathCheck ? throwError : RETURN_FALSE
         );
-        return this._t(path2, cache);
+        return this._t(path2, cache2);
       }
       checkIgnore(path2) {
         if (path2.charCodeAt(path2.length - 1) !== SLASH_CODE) {
@@ -10143,13 +10143,13 @@ var require_ignore = __commonJS({
         const literal = this._rules.testLiteral(path2);
         return literal.ignored || literal.unignored ? literal : dir;
       }
-      _t(path2, cache) {
-        if (path2 in cache) {
-          return cache[path2];
+      _t(path2, cache2) {
+        if (path2 in cache2) {
+          return cache2[path2];
         }
         const parentPath = parentOf(path2);
-        const parent = parentPath ? this._t(parentPath, cache) : UNDEFINED;
-        return cache[path2] = parent && parent.ignored ? parent : this._rules.test(path2, MODE_IGNORE);
+        const parent = parentPath ? this._t(parentPath, cache2) : UNDEFINED;
+        return cache2[path2] = parent && parent.ignored ? parent : this._rules.test(path2, MODE_IGNORE);
       }
       ignores(path2) {
         return this._test(path2, this._ignoreCache).ignored;
@@ -23700,6 +23700,144 @@ async function runCheck(base, head, changes, options) {
   };
 }
 
+// src/core/rules/packages.ts
+import { posix } from "node:path";
+function isRecord(value2) {
+  return typeof value2 === "object" && value2 !== null && !Array.isArray(value2);
+}
+function stringEntries(value2) {
+  const result = /* @__PURE__ */ new Map();
+  if (!isRecord(value2)) return result;
+  for (const [key, body] of Object.entries(value2)) if (typeof body === "string") result.set(key, body);
+  return result;
+}
+function parsePackageJson(path2, text5) {
+  let data;
+  try {
+    data = JSON.parse(text5.replace(/^\uFEFF/, ""));
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+  if (!isRecord(data)) return { error: "not a JSON object" };
+  const name = typeof data.name === "string" && data.name !== "" ? data.name : void 0;
+  const bins = /* @__PURE__ */ new Map();
+  if (typeof data.bin === "string") {
+    if (name !== void 0) bins.set(name.replace(/^@[^/]+\//, ""), data.bin);
+  } else {
+    for (const [binName, file] of stringEntries(data.bin)) bins.set(binName, file);
+  }
+  const dir = posix.dirname(path2);
+  return { path: path2, dir: dir === "." ? "" : dir, name, scripts: stringEntries(data.scripts), bins };
+}
+function normalizeWorkspace(value2) {
+  return posix.normalize(value2).replace(/^(?:\.\/)+/, "").replace(/\/+$/, "");
+}
+function packageSet(packages) {
+  const byDir = new Map(packages.map((p) => [p.dir, p]));
+  const at = (dir) => byDir.get(dir);
+  return {
+    packages,
+    at,
+    nearest(dir) {
+      let current = dir === "." ? "" : dir;
+      for (; ; ) {
+        const found = byDir.get(current);
+        if (found !== void 0) return found;
+        if (current === "") return void 0;
+        const parent = posix.dirname(current);
+        current = parent === "." ? "" : parent;
+      }
+    },
+    byWorkspace(value2) {
+      const wanted = normalizeWorkspace(value2);
+      if (wanted === "" || wanted === "." || /[*?{}]/.test(wanted)) return void 0;
+      const byName = packages.filter((p) => p.name === value2 || p.name === wanted);
+      if (byName.length === 1) return byName[0];
+      const exact = byDir.get(wanted);
+      if (exact !== void 0) return exact;
+      const suffix = packages.filter((p) => p.dir.endsWith(`/${wanted}`));
+      return suffix.length === 1 ? suffix[0] : void 0;
+    }
+  };
+}
+function isPackageJson(entry) {
+  return entry.kind === "file" && posix.basename(entry.path) === "package.json" && !entry.path.split("/").includes("node_modules");
+}
+async function readSide(snapshot, files) {
+  const paths = files.filter(isPackageJson).map((e) => e.path);
+  const contents = await snapshot.readFiles(paths);
+  const side = { parsed: /* @__PURE__ */ new Map(), invalid: /* @__PURE__ */ new Map() };
+  for (const path2 of paths) {
+    const result = parsePackageJson(path2, contents.get(path2) ?? "");
+    if ("error" in result) side.invalid.set(path2, result.error);
+    else side.parsed.set(path2, result);
+  }
+  return side;
+}
+var cache = /* @__PURE__ */ new WeakMap();
+function loadPackages(ctx) {
+  let loaded = cache.get(ctx);
+  if (loaded === void 0) {
+    loaded = (async () => {
+      const [base, head] = await Promise.all([readSide(ctx.base, ctx.baseFiles), readSide(ctx.head, ctx.headFiles)]);
+      const invalid = /* @__PURE__ */ new Set([...base.invalid.keys(), ...head.invalid.keys()]);
+      for (const [path2, reason] of [...base.invalid, ...head.invalid]) {
+        ctx.warn(`${path2}: invalid package.json (${reason}); its scripts and bins are ignored`);
+      }
+      const usable = (side) => packageSet([...side.parsed.values()].filter((p) => !invalid.has(p.path)));
+      return { base: usable(base), head: usable(head) };
+    })();
+    cache.set(ctx, loaded);
+  }
+  return loaded;
+}
+function resolveCwdDir(docPath, cwd) {
+  if (/^[/~$]/.test(cwd)) return void 0;
+  const dir = posix.normalize(posix.join(posix.dirname(docPath), cwd)).replace(/\/+$/, "");
+  if (dir === ".." || dir.startsWith("../")) return void 0;
+  return dir === "." ? "" : dir;
+}
+
+// src/core/rules/bin.ts
+var normalizeFile = (file) => file.replace(/^(?:\.\/)+/, "");
+function binNames(set) {
+  return new Set(set.packages.flatMap((p) => [...p.bins.keys()]));
+}
+function renamedTo(packages, name) {
+  const before = packages.base.packages.find((p) => p.bins.has(name));
+  const after = before === void 0 ? void 0 : packages.head.packages.find((p) => p.path === before.path);
+  if (before === void 0 || after === void 0) return void 0;
+  const removed = [...before.bins.keys()].filter((key) => !after.bins.has(key));
+  const added = [...after.bins.keys()].filter((key) => !before.bins.has(key));
+  if (removed.length !== 1 || added.length !== 1) return void 0;
+  const [newName] = added;
+  const file = normalizeFile(before.bins.get(name) ?? "");
+  return file !== "" && file === normalizeFile(after.bins.get(newName) ?? "") ? newName : void 0;
+}
+function binRule() {
+  let state;
+  return {
+    id: "bin",
+    kinds: ["command"],
+    async prepare(ctx) {
+      const packages = await loadPackages(ctx);
+      state = { packages, base: binNames(packages.base), head: binNames(packages.head) };
+    },
+    check(ref) {
+      if (state === void 0) throw new Error("binRule: prepare() must run before check()");
+      const name = ref.normalized;
+      if (!state.base.has(name) || state.head.has(name)) return void 0;
+      const drift = { fact: `bin:${name}`, message: `bin \`${name}\` was removed in this change` };
+      const newName = renamedTo(state.packages, name);
+      if (newName !== void 0) {
+        drift.message = `bin \`${name}\` was renamed to \`${newName}\` in this change`;
+        drift.suggestion = newName;
+      }
+      return drift;
+    }
+  };
+}
+
 // src/core/rules/env.ts
 var MAX_CANDIDATES = 200;
 var NAME = "[A-Za-z_][A-Za-z0-9_]*";
@@ -23744,8 +23882,8 @@ function isDocFile(path2) {
 function namesOf(lines, dotenv) {
   return [...new Set(lines.flatMap((line) => envNamesIn(line, dotenv)))];
 }
-function describeChange(name, renamedTo) {
-  return renamedTo === void 0 ? `environment variable \`${name}\` is no longer read anywhere in the code after this change` : `environment variable \`${name}\` was renamed to \`${renamedTo}\` in this change`;
+function describeChange(name, renamedTo4) {
+  return renamedTo4 === void 0 ? `environment variable \`${name}\` is no longer read anywhere in the code after this change` : `environment variable \`${name}\` was renamed to \`${renamedTo4}\` in this change`;
 }
 function envRule() {
   let confirmed;
@@ -23789,19 +23927,159 @@ function envRule() {
     check(ref) {
       if (confirmed === void 0) throw new Error("envRule: prepare() must run before check()");
       if (!confirmed.has(ref.normalized)) return void 0;
-      const renamedTo = confirmed.get(ref.normalized);
+      const renamedTo4 = confirmed.get(ref.normalized);
       return {
         fact: `env:${ref.normalized}`,
-        message: describeChange(ref.normalized, renamedTo),
-        ...renamedTo === void 0 ? {} : { suggestion: renamedTo }
+        message: describeChange(ref.normalized, renamedTo4),
+        ...renamedTo4 === void 0 ? {} : { suggestion: renamedTo4 }
       };
+    }
+  };
+}
+
+// src/core/rules/make.ts
+import { posix as posix2 } from "node:path";
+var DIRECTIVE2 = /^(?:-?include|sinclude|ifn?eq|ifn?def|else|endif|export|unexport|vpath|undefine|override|private)\b/;
+var DEFINE = /^(?:override\s+)?define\b/;
+var ENDEF = /^endef\b/;
+function logicalLines(text5) {
+  const physical = text5.split(/\r?\n/);
+  const result = [];
+  for (let i = 0; i < physical.length; i++) {
+    let line = physical[i];
+    while (/(?:^|[^\\])(?:\\\\)*\\$/.test(line) && i + 1 < physical.length) {
+      i++;
+      line = `${line.slice(0, -1).trimEnd()} ${physical[i].replace(/^\s+/, "")}`;
+    }
+    result.push(line);
+  }
+  return result;
+}
+function stripComment(line) {
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === "\\") i++;
+    else if (line[i] === "#") return line.slice(0, i);
+  }
+  return line;
+}
+function ruleColon(line) {
+  let depth = 0;
+  for (let i = 0; i < line.length; i++) {
+    const c = line.charAt(i);
+    if (c === "$" && (line[i + 1] === "(" || line[i + 1] === "{") || depth > 0 && (c === "(" || c === "{")) {
+      depth++;
+      if (c === "$") i++;
+    } else if (depth > 0 && (c === ")" || c === "}")) {
+      depth--;
+    } else if (depth === 0 && c === "=") {
+      return -1;
+    } else if (depth === 0 && c === ":") {
+      return /^::?:?=/.test(line.slice(i)) ? -1 : i;
+    }
+  }
+  return -1;
+}
+function isTargetName(name) {
+  return name !== "" && !name.startsWith(".") && !name.includes("%") && !name.includes("$(") && !name.includes("${");
+}
+function parseMakefile(text5) {
+  const targets = [];
+  let current;
+  const finish = () => {
+    if (current !== void 0) {
+      const recipe = current.recipe.join("\n");
+      for (const name of current.names) targets.push({ name, recipe });
+    }
+    current = void 0;
+  };
+  let defineDepth = 0;
+  for (const line of logicalLines(text5)) {
+    const trimmed = line.trim();
+    if (defineDepth > 0) {
+      if (ENDEF.test(trimmed)) defineDepth--;
+      else if (DEFINE.test(trimmed)) defineDepth++;
+      continue;
+    }
+    if (line.startsWith("	")) {
+      if (current !== void 0 && trimmed !== "") current.recipe.push(trimmed);
+      continue;
+    }
+    const code3 = stripComment(line).trim();
+    if (code3 === "") continue;
+    finish();
+    if (DEFINE.test(code3)) {
+      defineDepth = 1;
+      continue;
+    }
+    if (DIRECTIVE2.test(code3)) continue;
+    const colon = ruleColon(code3);
+    if (colon < 0) continue;
+    const names = code3.slice(0, colon).replace(/&$/, "").split(/\s+/).filter(isTargetName);
+    if (names.length > 0) current = { names, recipe: [] };
+  }
+  finish();
+  return targets;
+}
+function isMakefile(entry) {
+  if (entry.kind !== "file") return false;
+  const base = posix2.basename(entry.path);
+  return base === "Makefile" || base === "GNUmakefile" || base === "makefile" || base.endsWith(".mk");
+}
+async function readMakefiles(snapshot, files) {
+  const paths = files.filter(isMakefile).map((e) => e.path);
+  const contents = await snapshot.readFiles(paths);
+  return paths.map((path2) => ({
+    path: path2,
+    targets: new Map(parseMakefile(contents.get(path2) ?? "").map((t) => [t.name, t.recipe]))
+  }));
+}
+function inScope(files, dir) {
+  return dir === "" ? [...files] : files.filter((f) => f.path.startsWith(`${dir}/`));
+}
+function renamedTo2(before, after, name) {
+  if (after === void 0) return void 0;
+  const removed = [...before.targets.keys()].filter((key) => !after.targets.has(key));
+  const added = [...after.targets.keys()].filter((key) => !before.targets.has(key));
+  if (removed.length !== 1 || removed[0] !== name || added.length !== 1) return void 0;
+  const [newName] = added;
+  const recipe = before.targets.get(name) ?? "";
+  return recipe !== "" && recipe === after.targets.get(newName) ? newName : void 0;
+}
+function makeTargetRule() {
+  let state;
+  return {
+    id: "make-target",
+    kinds: ["make-target"],
+    async prepare(ctx) {
+      const [base, head] = await Promise.all([
+        readMakefiles(ctx.base, ctx.baseFiles),
+        readMakefiles(ctx.head, ctx.headFiles)
+      ]);
+      state = { base, head };
+    },
+    check(ref, doc) {
+      if (state === void 0) throw new Error("makeTargetRule: prepare() must run before check()");
+      const cwd = ref.context?.cwd;
+      const dir = cwd === void 0 ? "" : resolveCwdDir(doc.path, cwd);
+      if (dir === void 0) return void 0;
+      const name = ref.normalized;
+      const defined = inScope(state.base, dir).find((f) => f.targets.has(name));
+      if (defined === void 0) return void 0;
+      if (inScope(state.head, dir).some((f) => f.targets.has(name))) return void 0;
+      const drift = { fact: `make:${name}`, message: `Make target \`${name}\` was removed in this change` };
+      const newName = renamedTo2(defined, state.head.find((f) => f.path === defined.path), name);
+      if (newName !== void 0) {
+        drift.message = `Make target \`${name}\` was renamed to \`${newName}\` in this change`;
+        drift.suggestion = newName;
+      }
+      return drift;
     }
   };
 }
 
 // src/core/rules/path.ts
 var import_ignore = __toESM(require_ignore(), 1);
-import { posix } from "node:path";
+import { posix as posix3 } from "node:path";
 var BUILD_DIRS = /* @__PURE__ */ new Set(["dist", "build", "out", ".next", "coverage"]);
 function inventoryOf(entries) {
   const files = /* @__PURE__ */ new Set();
@@ -23825,15 +24103,15 @@ function exists(inv, path2) {
   return false;
 }
 function clean(path2) {
-  const normalized = posix.normalize(path2).replace(/\/+$/, "");
+  const normalized = posix3.normalize(path2).replace(/\/+$/, "");
   if (normalized === "" || normalized === "." || normalized === ".." || normalized.startsWith("../")) return void 0;
   return normalized;
 }
 function packageRoot(inv, docPath) {
-  let dir = posix.dirname(docPath);
+  let dir = posix3.dirname(docPath);
   while (dir !== "." && dir !== "") {
     if (inv.files.has(`${dir}/package.json`)) return dir;
-    dir = posix.dirname(dir);
+    dir = posix3.dirname(dir);
   }
   return void 0;
 }
@@ -23842,10 +24120,10 @@ function candidatesFor(inv, docPath, normalized) {
   if (normalized.startsWith("/")) {
     origins.push({ origin: "", path: normalized.replace(/^\/+/, "") });
   } else {
-    const docDir = posix.dirname(docPath);
-    origins.push({ origin: docDir === "." ? "" : docDir, path: posix.join(docDir, normalized) });
+    const docDir = posix3.dirname(docPath);
+    origins.push({ origin: docDir === "." ? "" : docDir, path: posix3.join(docDir, normalized) });
     const pkg = packageRoot(inv, docPath);
-    if (pkg !== void 0) origins.push({ origin: pkg, path: posix.join(pkg, normalized) });
+    if (pkg !== void 0) origins.push({ origin: pkg, path: posix3.join(pkg, normalized) });
     origins.push({ origin: "", path: normalized });
   }
   const seen = /* @__PURE__ */ new Set();
@@ -23877,17 +24155,17 @@ function styled(ref, origin, newPath) {
   if (ref.normalized.startsWith("/")) {
     text5 = `/${newPath}`;
   } else {
-    text5 = origin === "" ? newPath : posix.relative(origin, newPath);
+    text5 = origin === "" ? newPath : posix3.relative(origin, newPath);
     if (text5 === "") return void 0;
     if (token.startsWith("./") && !text5.startsWith("../")) text5 = `./${text5}`;
   }
   return ref.normalized.endsWith("/") && !text5.endsWith("/") ? `${text5}/` : text5;
 }
 async function loadGitignores(ctx) {
-  const paths = ctx.headFiles.filter((e) => e.kind === "file" && posix.basename(e.path) === ".gitignore").map((e) => e.path);
+  const paths = ctx.headFiles.filter((e) => e.kind === "file" && posix3.basename(e.path) === ".gitignore").map((e) => e.path);
   const contents = await ctx.head.readFiles(paths);
   return paths.map((path2) => ({
-    dir: posix.dirname(path2) === "." ? "" : posix.dirname(path2),
+    dir: posix3.dirname(path2) === "." ? "" : posix3.dirname(path2),
     rules: (0, import_ignore.default)({ ignorecase: false }).add(contents.get(path2) ?? "")
   })).sort((a, b) => a.dir.split("/").length - b.dir.split("/").length || (a.dir < b.dir ? -1 : 1));
 }
@@ -23946,9 +24224,66 @@ function pathRule() {
   };
 }
 
+// src/core/rules/scripts.ts
+function resolveIn(set, ref, docPath) {
+  const workspace = ref.context?.workspace;
+  if (workspace !== void 0) return set.byWorkspace(workspace);
+  const cwd = ref.context?.cwd;
+  if (cwd !== void 0) {
+    const dir = resolveCwdDir(docPath, cwd);
+    return dir === void 0 ? void 0 : set.nearest(dir);
+  }
+  return set.nearest(resolveCwdDir(docPath, ".") ?? "");
+}
+function locatable(ref, docPath) {
+  const cwd = ref.context?.cwd;
+  return ref.context?.workspace !== void 0 || cwd === void 0 || resolveCwdDir(docPath, cwd) !== void 0;
+}
+function labelOf(pkg) {
+  return pkg.name ?? pkg.path;
+}
+function renamedTo3(before, after, name) {
+  if (after === void 0) return void 0;
+  const removed = [...before.scripts.keys()].filter((key) => !after.scripts.has(key));
+  const added = [...after.scripts.keys()].filter((key) => !before.scripts.has(key));
+  if (removed.length !== 1 || removed[0] !== name || added.length !== 1) return void 0;
+  const [newName] = added;
+  const body = before.scripts.get(name)?.trim();
+  return body !== void 0 && body !== "" && body === after.scripts.get(newName)?.trim() ? newName : void 0;
+}
+function npmScriptRule() {
+  let packages;
+  return {
+    id: "npm-script",
+    kinds: ["npm-script"],
+    async prepare(ctx) {
+      packages = await loadPackages(ctx);
+    },
+    check(ref, doc) {
+      if (packages === void 0) throw new Error("npmScriptRule: prepare() must run before check()");
+      if (!locatable(ref, doc.path)) return void 0;
+      const name = ref.normalized;
+      const before = resolveIn(packages.base, ref, doc.path);
+      if (before === void 0 || !before.scripts.has(name)) return void 0;
+      const after = resolveIn(packages.head, ref, doc.path) ?? (ref.context?.workspace !== void 0 ? packages.head.at(before.dir) : void 0);
+      if (after?.scripts.has(name)) return void 0;
+      const drift = {
+        fact: `${before.path}#${name}`,
+        message: `npm script \`${name}\` (package \`${labelOf(before)}\`) was removed in this change`
+      };
+      const newName = renamedTo3(before, after, name);
+      if (newName !== void 0) {
+        drift.message = `npm script \`${name}\` (package \`${labelOf(before)}\`) was renamed to \`${newName}\` in this change`;
+        drift.suggestion = newName;
+      }
+      return drift;
+    }
+  };
+}
+
 // src/core/rules/index.ts
 function defaultRules() {
-  return [pathRule(), envRule()];
+  return [pathRule(), npmScriptRule(), binRule(), makeTargetRule(), envRule()];
 }
 
 // src/core/snapshot.ts

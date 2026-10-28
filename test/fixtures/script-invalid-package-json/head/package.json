@@ -1,0 +1,5 @@
+{
+  "name": "app",
+  "scripts": {
+    "build": "tsc -p ."
+  },

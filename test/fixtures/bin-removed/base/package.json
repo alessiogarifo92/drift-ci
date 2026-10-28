@@ -1,0 +1,4 @@
+{
+  "name": "@acme/legacytool",
+  "bin": "./cli.js"
+}

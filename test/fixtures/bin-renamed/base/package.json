@@ -1,0 +1,6 @@
+{
+  "name": "tool",
+  "bin": {
+    "olddoc": "./bin/cli.js"
+  }
+}
