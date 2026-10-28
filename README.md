@@ -2,6 +2,18 @@
 
 Checks every pull request for docs and AI-agent context files (AGENTS.md, CLAUDE.md, .cursorrules, copilot-instructions) that reference things the PR renamed or removed, and flags the exact lines before merge.
 
+Files checked by default, at any depth unless noted:
+
+- **Docs:** `README*`, `*.md` under a `docs/` directory, and `CONTRIBUTING`, `DEVELOPMENT` and `HACKING` (`.md` or no extension).
+- **Agent context files:**
+  - `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, `.windsurfrules`, `.clinerules`, and `.clinerules/*.md`;
+  - `.cursor/rules/*.mdc`;
+  - `SKILL.md` under a `skills/` directory;
+  - `.md` files under `.claude/commands/` and `.claude/agents/`;
+  - at the root only: `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, `.github/prompts/*.prompt.md` and `.github/agents/*.md`.
+
+`docs.include` and `docs.exclude` in `.drift-ci.yml` adjust the list.
+
 ## CLI
 
 Requires Node 22 or later and git. The CLI reads commits straight from git, never the working tree.
