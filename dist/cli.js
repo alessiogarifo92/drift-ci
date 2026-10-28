@@ -23591,6 +23591,37 @@ function matchesIgnore(entry, finding) {
   return entry.file === void 0 || import_picomatch.default.isMatch(finding.file, entry.file, globOptions);
 }
 
+// src/git/errors.ts
+var GitError = class extends Error {
+  args;
+  stderr;
+  /** `undefined` when git did not run to completion (e.g. killed by a signal). */
+  exitCode;
+  constructor(message, details = {}) {
+    super(message, details.cause === void 0 ? void 0 : { cause: details.cause });
+    this.name = "GitError";
+    this.args = details.args ?? [];
+    this.stderr = details.stderr ?? "";
+    this.exitCode = details.exitCode;
+  }
+};
+var GitNotFoundError = class extends GitError {
+  gitBinary;
+  constructor(gitBinary, details = {}) {
+    super(`git executable not found: ${gitBinary}`, details);
+    this.name = "GitNotFoundError";
+    this.gitBinary = gitBinary;
+  }
+};
+var UnknownRevisionError = class extends GitError {
+  rev;
+  constructor(rev, details = {}) {
+    super(`unknown revision: ${rev}`, details);
+    this.name = "UnknownRevisionError";
+    this.rev = rev;
+  }
+};
+
 // src/core/finding.ts
 import { createHash } from "node:crypto";
 var FINDING_SCHEMA_VERSION = 1;
@@ -24331,37 +24362,6 @@ function deriveDirectoryRenames(renames, baseFiles, headFiles) {
   return [...completeTo].filter(([from, to]) => !implied(from, to) && !stillThere(from, to)).map(([from, to]) => ({ from, to, similarity: 100 })).sort((a, b) => compareStrings2(a.from, b.from));
 }
 
-// src/git/errors.ts
-var GitError = class extends Error {
-  args;
-  stderr;
-  /** `undefined` when git did not run to completion (e.g. killed by a signal). */
-  exitCode;
-  constructor(message, details = {}) {
-    super(message, details.cause === void 0 ? void 0 : { cause: details.cause });
-    this.name = "GitError";
-    this.args = details.args ?? [];
-    this.stderr = details.stderr ?? "";
-    this.exitCode = details.exitCode;
-  }
-};
-var GitNotFoundError = class extends GitError {
-  gitBinary;
-  constructor(gitBinary, details = {}) {
-    super(`git executable not found: ${gitBinary}`, details);
-    this.name = "GitNotFoundError";
-    this.gitBinary = gitBinary;
-  }
-};
-var UnknownRevisionError = class extends GitError {
-  rev;
-  constructor(rev, details = {}) {
-    super(`unknown revision: ${rev}`, details);
-    this.name = "UnknownRevisionError";
-    this.rev = rev;
-  }
-};
-
 // src/git/run.ts
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -24809,6 +24809,27 @@ async function readRepoSlug(repoDir, options = {}) {
   }
 }
 
+// src/git/pipeline.ts
+async function runDiffCheck(dir, base, head, options = {}) {
+  const { repo: repoOverride, ...git } = options;
+  const root2 = await repositoryRoot(dir, git);
+  const [baseSnapshot, headSnapshot, changes, hunks, slug] = await Promise.all([
+    openSnapshot(root2, base, git),
+    openSnapshot(root2, head, git),
+    computeChangeSet(root2, base, head, git),
+    computeHunks(root2, base, head, git),
+    repoOverride ? Promise.resolve(void 0) : readRepoSlug(root2, git)
+  ]);
+  const repo = repoOverride ?? slug;
+  const config = await loadConfig(headSnapshot);
+  return runCheck(baseSnapshot, headSnapshot, changes, {
+    rules: defaultRules(),
+    hunks,
+    config,
+    ...repo ? { repo } : {}
+  });
+}
+
 // src/cli/check.ts
 var OUTPUT_FORMATS = ["text", "json"];
 function formatJson(result) {
@@ -24835,21 +24856,7 @@ async function runCheckCommand(options, io) {
   const { base, head, cwd, format } = options;
   let result;
   try {
-    const root2 = await repositoryRoot(cwd);
-    const [baseSnapshot, headSnapshot, changes, hunks, repo] = await Promise.all([
-      openSnapshot(root2, base),
-      openSnapshot(root2, head),
-      computeChangeSet(root2, base, head),
-      computeHunks(root2, base, head),
-      readRepoSlug(root2)
-    ]);
-    const config = await loadConfig(headSnapshot);
-    result = await runCheck(baseSnapshot, headSnapshot, changes, {
-      rules: defaultRules(),
-      hunks,
-      config,
-      ...repo ? { repo } : {}
-    });
+    result = await runDiffCheck(cwd, base, head);
   } catch (error) {
     if (error instanceof ConfigError) {
       io.stderr(`drift-ci: ${error.message}

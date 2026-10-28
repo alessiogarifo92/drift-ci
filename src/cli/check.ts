@@ -1,14 +1,8 @@
 // `drift-ci check`: runs the rules between two commits of a repository and prints the result.
-import { runCheck } from '../core/check.ts';
-import { ConfigError, loadConfig } from '../core/config.ts';
+import { ConfigError } from '../core/config.ts';
 import type { CheckResult } from '../core/finding.ts';
-import { defaultRules } from '../core/rules/index.ts';
-import { computeChangeSet } from '../git/changeset.ts';
 import { GitError } from '../git/errors.ts';
-import { computeHunks } from '../git/hunks.ts';
-import { readRepoSlug } from '../git/remote.ts';
-import { repositoryRoot } from '../git/revision.ts';
-import { openSnapshot } from '../git/snapshot.ts';
+import { runDiffCheck } from '../git/pipeline.ts';
 import type { Io } from './io.ts';
 
 export type OutputFormat = 'text' | 'json';
@@ -51,21 +45,7 @@ export async function runCheckCommand(options: CheckCommandOptions, io: Io): Pro
   const { base, head, cwd, format } = options;
   let result: CheckResult;
   try {
-    const root = await repositoryRoot(cwd); // git grep only searches the directory it runs in
-    const [baseSnapshot, headSnapshot, changes, hunks, repo] = await Promise.all([
-      openSnapshot(root, base),
-      openSnapshot(root, head),
-      computeChangeSet(root, base, head),
-      computeHunks(root, base, head),
-      readRepoSlug(root),
-    ]);
-    const config = await loadConfig(headSnapshot);
-    result = await runCheck(baseSnapshot, headSnapshot, changes, {
-      rules: defaultRules(),
-      hunks,
-      config,
-      ...(repo ? { repo } : {}),
-    });
+    result = await runDiffCheck(cwd, base, head);
   } catch (error) {
     if (error instanceof ConfigError) {
       io.stderr(`drift-ci: ${error.message}\n`);
