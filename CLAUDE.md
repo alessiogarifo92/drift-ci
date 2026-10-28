@@ -2,7 +2,7 @@
 
 Checks every pull request for docs and AI-agent context files (AGENTS.md, CLAUDE.md, .cursorrules, copilot-instructions) that reference things the PR renamed or removed, and flags the exact lines before merge.
 
-Phase-1 decisions: `docs/decisions.md`. Research: Notion page "Ricerca di mercato – Idee di app per lavoro e vita quotidiana (ottobre 2026)", sections 5–6.
+Phase-1 decisions: `docs/phase-1-decisions.md`. Research: Notion page "Ricerca di mercato – Idee di app per lavoro e vita quotidiana (ottobre 2026)", sections 5–6.
 
 ## Bootstrap: load the shared skills repo (do this before any work)
 
