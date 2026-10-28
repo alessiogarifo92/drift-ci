@@ -1,0 +1,10 @@
+draft line 1
+rewritten text 2
+rewritten text 3
+rewritten text 4
+rewritten text 5
+rewritten text 6
+rewritten text 7
+rewritten text 8
+rewritten text 9
+rewritten text 10

@@ -1,0 +1,7 @@
+{
+  "name": "demo",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint ."
+  }
+}

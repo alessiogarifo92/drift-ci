@@ -1,5 +1,5 @@
 * text=auto eol=lf
-# Built bundle: committed, checked for freshness in CI, not reviewed by hand.
-dist/** linguist-generated=true -diff
+# Built bundle: committed and checked for freshness in CI. Generated, but still diffable: a reviewer can read what changed.
+dist/** linguist-generated=true
 # Fixtures are byte-exact inputs (CRLF cases included): never normalise them.
 test/fixtures/** -text

@@ -1,0 +1,9 @@
+name: ci
+on: push
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_TARGET: production
+    steps:
+      - run: echo release

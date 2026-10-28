@@ -1,0 +1,9 @@
+[
+  {
+    "ruleId": "path",
+    "file": "README.md",
+    "line": 3,
+    "col": 18,
+    "suggestion": "docs/guide.md"
+  }
+]

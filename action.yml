@@ -1,0 +1,28 @@
+name: Drift CI
+description: Flags docs and AI-agent context files (AGENTS.md, CLAUDE.md, README) that reference things a pull request renamed or removed.
+author: alessiogarifo92
+branding:
+  icon: file-text
+  color: orange
+
+inputs:
+  config:
+    description: Reserved. drift-ci reads .drift-ci.yml at the repository root only; any other value is ignored with a warning.
+    required: false
+    default: ''
+  fail-on:
+    description: 'Fail the job when "warning" and there is at least one finding; "none" never fails. Empty uses `failOn` from the base branch .drift-ci.yml (default none).'
+    required: false
+    default: ''
+  comment:
+    description: 'Post one sticky comment on the pull request and update it on every push ("true" or "false"). Fork pull requests never get one.'
+    required: false
+    default: 'true'
+  github-token:
+    description: 'Token used to read and write the pull request comment. Needs `pull-requests: write`.'
+    required: false
+    default: '${{ github.token }}'
+
+runs:
+  using: node24
+  main: dist/action.js

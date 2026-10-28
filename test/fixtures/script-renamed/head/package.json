@@ -1,0 +1,7 @@
+{
+  "name": "app",
+  "scripts": {
+    "compile": "tsc -p .",
+    "lint": "eslint ."
+  }
+}

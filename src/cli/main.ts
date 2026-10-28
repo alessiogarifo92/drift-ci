@@ -1,81 +1,104 @@
-import { execFileSync } from 'node:child_process';
-import { FINDING_SCHEMA_VERSION } from '../core/index.ts';
+import type { FailOn } from '../core/finding.ts';
+import {
+  FAIL_ON_VALUES,
+  OUTPUT_FORMATS,
+  runCheckCommand,
+  type CheckCommandOptions,
+  type OutputFormat,
+} from './check.ts';
+import type { Io } from './io.ts';
+import { runScanCommand, type ScanCommandOptions } from './scan.ts';
 
 declare const __DRIFT_CI_VERSION__: string | undefined;
 
 export const VERSION =
   typeof __DRIFT_CI_VERSION__ === 'string' ? __DRIFT_CI_VERSION__ : '0.0.0-dev';
 
-const HELP = `Usage: drift-ci [options]
+const HELP = `Usage: drift-ci [check] [options]
+       drift-ci scan [options]   (beta)
 
 Checks docs and AI-agent context files for references to things renamed or
-removed between two commits.
+removed between two commits (\`check\`, the default), or for references that
+do not exist at one commit (\`scan\`, beta: expect false positives; paths,
+npm scripts and make targets only).
 
 Options:
-  --base <ref>   Base commit (default: HEAD^)
-  --head <ref>   Head commit (default: HEAD)
-  --cwd <dir>    Repository directory (default: current directory)
-  -h, --help     Show this help
-  -v, --version  Show the version
+  --base <ref>         check: base commit (default: HEAD^)
+  --head <ref>         Head commit (default: HEAD)
+  --cwd <dir>          Repository directory (default: current directory)
+  --format <format>    Output format: text or json (default: text)
+  --fail-on <level>    none or warning: exit 1 when there are findings and
+                       the level is warning (default: failOn of
+                       .drift-ci.yml, else none)
+  -h, --help           Show this help
+  -v, --version        Show the version
+
+Exit codes: 0 ok, 1 findings with failOn warning, 2 usage or runtime error.
 `;
 
-export interface Io {
-  stdout: (text: string) => void;
-  stderr: (text: string) => void;
-  cwd: string;
-}
+export type { Io };
 
-export interface Options {
-  base: string;
-  head: string;
-  cwd: string;
-}
+export type Options = CheckCommandOptions;
 
 export type Parsed =
   | { kind: 'help' }
   | { kind: 'version' }
   | { kind: 'run'; options: Options }
+  | { kind: 'scan'; options: ScanCommandOptions }
   | { kind: 'error'; message: string };
 
-export function parseArgs(argv: readonly string[], defaultCwd: string): Parsed {
-  const options: Options = { base: 'HEAD^', head: 'HEAD', cwd: defaultCwd };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    switch (arg) {
-      case '-h':
-      case '--help':
-        return { kind: 'help' };
-      case '-v':
-      case '--version':
-        return { kind: 'version' };
-      case '--base':
-      case '--head':
-      case '--cwd': {
-        const value = argv[i + 1];
-        if (value === undefined || value.startsWith('-')) {
-          return { kind: 'error', message: `${arg} needs a value` };
-        }
-        options[arg.slice(2) as keyof Options] = value;
-        i++;
-        break;
-      }
-      default:
-        return { kind: 'error', message: `unknown argument: ${String(arg)}` };
-    }
-  }
-  return { kind: 'run', options };
-}
+type Command = 'check' | 'scan';
 
-function resolveCommit(cwd: string, ref: string): string {
-  return execFileSync('git', ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`], {
-    cwd,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+/** Flags that take a value, per command. */
+const VALUE_FLAGS: Record<Command, readonly string[]> = {
+  check: ['--base', '--head', '--cwd', '--format', '--fail-on'],
+  scan: ['--head', '--cwd', '--format', '--fail-on'],
+};
+
+export function parseArgs(argv: readonly string[], defaultCwd: string): Parsed {
+  const command: Command = argv[0] === 'scan' ? 'scan' : 'check';
+  const options = { base: 'HEAD^', head: 'HEAD', cwd: defaultCwd, format: 'text' as OutputFormat };
+  let failOn: FailOn | undefined;
+  const args = argv[0] === 'check' || argv[0] === 'scan' ? argv.slice(1) : argv;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '-h' || arg === '--help') return { kind: 'help' };
+    if (arg === '-v' || arg === '--version') return { kind: 'version' };
+    if (arg === undefined || !VALUE_FLAGS[command].includes(arg)) {
+      if (command === 'scan' && arg === '--base') {
+        return { kind: 'error', message: '--base is not supported by scan (it looks at one commit)' };
+      }
+      return { kind: 'error', message: `unknown argument: ${String(arg)}` };
+    }
+    const value = args[i + 1];
+    if (value === undefined || value.startsWith('-')) {
+      return { kind: 'error', message: `${arg} needs a value` };
+    }
+    if (arg === '--format') {
+      if (!OUTPUT_FORMATS.includes(value as OutputFormat)) {
+        return { kind: 'error', message: `unknown format: ${value} (expected json or text)` };
+      }
+      options.format = value as OutputFormat;
+    } else if (arg === '--fail-on') {
+      if (!FAIL_ON_VALUES.includes(value as FailOn)) {
+        return { kind: 'error', message: `unknown --fail-on value: ${value} (expected none or warning)` };
+      }
+      failOn = value as FailOn;
+    } else {
+      options[arg.slice(2) as 'base' | 'head' | 'cwd'] = value;
+    }
+    i++;
+  }
+  const withFailOn = failOn === undefined ? {} : { failOn };
+  if (command === 'scan') {
+    const { head, cwd, format } = options;
+    return { kind: 'scan', options: { head, cwd, format, ...withFailOn } };
+  }
+  return { kind: 'run', options: { ...options, ...withFailOn } };
 }
 
 /** Runs the CLI and returns the process exit code. */
-export function run(argv: readonly string[], io: Io): number {
+export async function run(argv: readonly string[], io: Io): Promise<number> {
   const parsed = parseArgs(argv, io.cwd);
   switch (parsed.kind) {
     case 'help':
@@ -87,24 +110,9 @@ export function run(argv: readonly string[], io: Io): number {
     case 'error':
       io.stderr(`drift-ci: ${parsed.message}\n\n${HELP}`);
       return 2;
-    case 'run': {
-      const { base, head, cwd } = parsed.options;
-      let baseSha: string;
-      let headSha: string;
-      try {
-        baseSha = resolveCommit(cwd, base);
-        headSha = resolveCommit(cwd, head);
-      } catch (error) {
-        const detail = error instanceof Error ? error.message.split('\n')[0] : String(error);
-        io.stderr(`drift-ci: cannot resolve commits in ${cwd}: ${detail}\n`);
-        return 2;
-      }
-      io.stdout(
-        `drift-ci ${VERSION} (finding schema v${FINDING_SCHEMA_VERSION})\n` +
-          `base ${baseSha}\nhead ${headSha}\n` +
-          'No checks are implemented yet: 0 findings.\n',
-      );
-      return 0;
-    }
+    case 'run':
+      return runCheckCommand(parsed.options, io);
+    case 'scan':
+      return runScanCommand(parsed.options, io);
   }
 }

@@ -1,0 +1,71 @@
+// The finding schema: what a rule reports and what the reporters print.
+import { createHash } from 'node:crypto';
+import type { ReferenceKind } from './reference.ts';
+
+/** Version of the JSON finding schema emitted by the reporters. */
+export const FINDING_SCHEMA_VERSION = 1;
+
+/** Which findings make the run fail: none (warn only, the default) or any. */
+export type FailOn = 'none' | 'warning';
+
+export interface Finding {
+  /** The rule that reported it: `path`, `npm-script`, `make-target`, `bin` or `env` (scan mode: never `bin` or `env`). */
+  ruleId: string;
+  /** Kind of the reference that triggered it. */
+  kind: ReferenceKind;
+  /** The drifted thing as the rule resolved it, e.g. the repo-relative `src/old.ts`. */
+  fact: string;
+  file: string;
+  /** 1-indexed line. */
+  line: number;
+  /** 1-indexed column, in UTF-16 code units. */
+  col: number;
+  message: string;
+  /** Replacement text as the doc should write it (same style as the original reference). */
+  suggestion?: string;
+  /** Stable id of the finding across unrelated edits: see `fingerprint`. */
+  fingerprint: string;
+}
+
+/** The JSON document `drift-ci check --format json` prints. */
+export interface CheckResult {
+  schemaVersion: typeof FINDING_SCHEMA_VERSION;
+  mode: 'diff';
+  /** Full SHA of the base commit. */
+  base: string;
+  /** Full SHA of the head commit. */
+  head: string;
+  findings: Finding[];
+  warnings: string[];
+  /** The `failOn` setting of the head's config, for the exit code; `none` without a config. */
+  failOn: FailOn;
+  /** Present (`true`) only when the change itself touches `.drift-ci.yml`: the check used that new version. */
+  configChanged?: true;
+}
+
+/** The JSON document `drift-ci scan --format json` prints (beta): `CheckResult` without a base. */
+export interface ScanResult {
+  schemaVersion: typeof FINDING_SCHEMA_VERSION;
+  mode: 'scan';
+  /** Full SHA of the scanned commit. */
+  head: string;
+  findings: Finding[];
+  warnings: string[];
+  failOn: FailOn;
+}
+
+/** What a reporter prints: the result of either mode. */
+export type Report = CheckResult | ScanResult;
+
+/**
+ * First 16 hex characters of the SHA-256 of `[ruleId, fact, file, normalizedLine]`, where the
+ * line is trimmed and its internal whitespace collapsed. Line and column are not part of it, so
+ * a finding keeps its fingerprint when lines above it are added or removed.
+ */
+export function fingerprint(ruleId: string, fact: string, file: string, lineText: string): string {
+  const normalizedLine = lineText.trim().replace(/\s+/g, ' ');
+  return createHash('sha256')
+    .update(JSON.stringify([ruleId, fact, file, normalizedLine]))
+    .digest('hex')
+    .slice(0, 16);
+}
