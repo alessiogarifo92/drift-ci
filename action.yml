@@ -19,9 +19,9 @@ inputs:
     required: false
     default: 'true'
   github-token:
-    description: Token used to read and write the pull request comment. Needs `pull-requests: write`.
+    description: 'Token used to read and write the pull request comment. Needs `pull-requests: write`.'
     required: false
-    default: ${{ github.token }}
+    default: '${{ github.token }}'
 
 runs:
   using: node24
