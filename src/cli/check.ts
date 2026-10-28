@@ -1,5 +1,6 @@
 // `drift-ci check`: runs the rules between two commits of a repository and prints the result.
 import { runCheck } from '../core/check.ts';
+import { ConfigError, loadConfig } from '../core/config.ts';
 import type { CheckResult } from '../core/finding.ts';
 import { defaultRules } from '../core/rules/index.ts';
 import { computeChangeSet } from '../git/changeset.ts';
@@ -43,7 +44,8 @@ export function formatWarnings(result: CheckResult): string {
 
 /**
  * Runs the check and prints its result. Returns the process exit code: 0 whenever the check ran
- * (findings do not fail the run yet), 2 when git cannot answer (bad ref, not a repository).
+ * (findings do not fail the run yet), 2 when git cannot answer (bad ref, not a repository) or the
+ * head's `.drift-ci.yml` is invalid.
  */
 export async function runCheckCommand(options: CheckCommandOptions, io: Io): Promise<number> {
   const { base, head, cwd, format } = options;
@@ -57,12 +59,18 @@ export async function runCheckCommand(options: CheckCommandOptions, io: Io): Pro
       computeHunks(root, base, head),
       readRepoSlug(root),
     ]);
+    const config = await loadConfig(headSnapshot);
     result = await runCheck(baseSnapshot, headSnapshot, changes, {
       rules: defaultRules(),
       hunks,
+      config,
       ...(repo ? { repo } : {}),
     });
   } catch (error) {
+    if (error instanceof ConfigError) {
+      io.stderr(`drift-ci: ${error.message}\n`);
+      return 2;
+    }
     if (error instanceof GitError) {
       io.stderr(`drift-ci: ${error.message.split('\n')[0]}\n`);
       return 2;

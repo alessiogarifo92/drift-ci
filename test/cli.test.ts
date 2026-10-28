@@ -72,6 +72,7 @@ describe('formatText and formatWarnings', () => {
     head: 'b'.repeat(40),
     findings,
     warnings,
+    failOn: 'none',
   });
   const finding = (over: Partial<CheckResult['findings'][number]> = {}): CheckResult['findings'][number] => ({
     ruleId: 'path',

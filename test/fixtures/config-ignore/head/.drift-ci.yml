@@ -1,0 +1,6 @@
+version: 1
+failOn: warning
+ignore:
+  - kind: path
+    name: src/old.*
+    file: docs/**

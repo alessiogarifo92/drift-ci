@@ -5,6 +5,9 @@ import type { ReferenceKind } from './reference.ts';
 /** Version of the JSON finding schema emitted by the reporters. */
 export const FINDING_SCHEMA_VERSION = 1;
 
+/** Which findings make the run fail: none (warn only, the default) or any. */
+export type FailOn = 'none' | 'warning';
+
 export interface Finding {
   /** The rule that reported it: `path` today; later `npm-script`, `make-target`, `bin`, `env`. */
   ruleId: string;
@@ -33,6 +36,8 @@ export interface CheckResult {
   head: string;
   findings: Finding[];
   warnings: string[];
+  /** The `failOn` setting of the head's config, for the exit code; `none` without a config. */
+  failOn: FailOn;
 }
 
 /**

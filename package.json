@@ -30,15 +30,18 @@
   "dependencies": {
     "@actions/core": "^3.0.1",
     "ignore": "^7.0.14",
+    "picomatch": "^4.0.7",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
-    "unified": "^11.0.5"
+    "unified": "^11.0.5",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/mdast": "^4.0.4",
     "@types/node": "^22.20.5",
+    "@types/picomatch": "^4.0.3",
     "@vitest/coverage-v8": "^5.0.5",
     "esbuild": "^0.28.2",
     "eslint": "^10.13.0",
