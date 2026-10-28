@@ -42670,8 +42670,8 @@ function parseConfig(text5, source = CONFIG_PATH) {
   }
   return config;
 }
-async function loadConfig(head) {
-  const text5 = await head.readFile(CONFIG_PATH);
+async function loadConfig(snapshot) {
+  const text5 = await snapshot.readFile(CONFIG_PATH);
   return text5 === void 0 ? defaultConfig() : parseConfig(text5);
 }
 var globOptions = { dot: true };
@@ -44243,7 +44243,7 @@ async function readRepoSlug(repoDir, options = {}) {
 
 // src/git/pipeline.ts
 async function runDiffCheck(dir, base, head, options = {}) {
-  const { repo: repoOverride, ...git } = options;
+  const { repo: repoOverride, configFrom = "head", ...git } = options;
   const root2 = await repositoryRoot(dir, git);
   const [baseSnapshot, headSnapshot, changes, hunks, slug] = await Promise.all([
     openSnapshot(root2, base, git),
@@ -44253,7 +44253,7 @@ async function runDiffCheck(dir, base, head, options = {}) {
     repoOverride ? Promise.resolve(void 0) : readRepoSlug(root2, git)
   ]);
   const repo = repoOverride ?? slug;
-  const config = await loadConfig(headSnapshot);
+  const config = await loadConfig(configFrom === "base" ? baseSnapshot : headSnapshot);
   return runCheck(baseSnapshot, headSnapshot, changes, {
     rules: defaultRules(),
     hunks,
@@ -44333,7 +44333,7 @@ var MAX_COMMENT_CHARS = 6e4;
 var MAX_SUMMARY_CHARS = 9e5;
 var PROJECT_URL = "https://github.com/alessiogarifo92/drift-ci";
 var ZERO_WIDTH_SPACE = "\u200B";
-var CONFIG_NOTE = "This pull request changes .drift-ci.yml; the check used the new configuration.";
+var CONFIG_NOTE = "This pull request changes .drift-ci.yml; the check used the base branch configuration, so the change applies once this is merged.";
 var MARKDOWN_FILE = /\.(?:md|mdx|markdown|mdc)$/i;
 function permalink(ctx, file, line) {
   const path2 = file.split("/").map((segment) => encodeURIComponent(segment).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join("/");
@@ -45149,6 +45149,7 @@ async function run(core, deps) {
   const { base, head } = await resolveBase(git, { headSha: pr.headSha, baseSha: pr.baseSha });
   const check = deps.check ?? runDiffCheck;
   const result = await check(env.workspace, base, head, {
+    configFrom: "base",
     repo: {
       owner: env.owner,
       name: env.repo,

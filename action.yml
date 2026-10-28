@@ -11,7 +11,7 @@ inputs:
     required: false
     default: ''
   fail-on:
-    description: 'Fail the job when "warning" and there is at least one finding; "none" never fails. Empty uses `failOn` from .drift-ci.yml (default none).'
+    description: 'Fail the job when "warning" and there is at least one finding; "none" never fails. Empty uses `failOn` from the base branch .drift-ci.yml (default none).'
     required: false
     default: ''
   comment:

@@ -23557,8 +23557,8 @@ function parseConfig(text5, source = CONFIG_PATH) {
   }
   return config;
 }
-async function loadConfig(head) {
-  const text5 = await head.readFile(CONFIG_PATH);
+async function loadConfig(snapshot) {
+  const text5 = await snapshot.readFile(CONFIG_PATH);
   return text5 === void 0 ? defaultConfig() : parseConfig(text5);
 }
 var globOptions = { dot: true };
@@ -25169,7 +25169,7 @@ async function readRepoSlug(repoDir, options = {}) {
 
 // src/git/pipeline.ts
 async function runDiffCheck(dir, base, head, options = {}) {
-  const { repo: repoOverride, ...git } = options;
+  const { repo: repoOverride, configFrom = "head", ...git } = options;
   const root2 = await repositoryRoot(dir, git);
   const [baseSnapshot, headSnapshot, changes, hunks, slug] = await Promise.all([
     openSnapshot(root2, base, git),
@@ -25179,7 +25179,7 @@ async function runDiffCheck(dir, base, head, options = {}) {
     repoOverride ? Promise.resolve(void 0) : readRepoSlug(root2, git)
   ]);
   const repo = repoOverride ?? slug;
-  const config = await loadConfig(headSnapshot);
+  const config = await loadConfig(configFrom === "base" ? baseSnapshot : headSnapshot);
   return runCheck(baseSnapshot, headSnapshot, changes, {
     rules: defaultRules(),
     hunks,

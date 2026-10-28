@@ -204,9 +204,9 @@ export function parseConfig(text: string, source: string = CONFIG_PATH): DriftCo
   return config;
 }
 
-/** The config of the head commit: `.drift-ci.yml` at its root, or the defaults when there is none. */
-export async function loadConfig(head: RepoSnapshot): Promise<DriftConfig> {
-  const text = await head.readFile(CONFIG_PATH);
+/** The config of a commit: `.drift-ci.yml` at its root, or the defaults when there is none. */
+export async function loadConfig(snapshot: RepoSnapshot): Promise<DriftConfig> {
+  const text = await snapshot.readFile(CONFIG_PATH);
   return text === undefined ? defaultConfig() : parseConfig(text);
 }
 

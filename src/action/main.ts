@@ -60,6 +60,7 @@ async function run(core: ActionCore, deps: ActionDeps): Promise<void> {
   const { base, head } = await resolveBase(git, { headSha: pr.headSha, baseSha: pr.baseSha });
   const check = deps.check ?? runDiffCheck;
   const result = await check(env.workspace, base, head, {
+    configFrom: 'base',
     repo: {
       owner: env.owner,
       name: env.repo,

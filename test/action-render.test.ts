@@ -186,8 +186,8 @@ describe('config-changed note', () => {
     const comment = renderComment(changed, ctx);
     const lines = comment.split('\n');
     expect(lines[0]).toBe(COMMENT_MARKER);
-    expect(lines[1]).toContain('This pull request changes .drift-ci.yml; the check used the new configuration.');
-    expect(CONFIG_NOTE).toBe('This pull request changes .drift-ci.yml; the check used the new configuration.');
+    expect(lines[1]).toContain('This pull request changes .drift-ci.yml; the check used the base branch configuration, so the change applies once this is merged.');
+    expect(CONFIG_NOTE).toBe('This pull request changes .drift-ci.yml; the check used the base branch configuration, so the change applies once this is merged.');
     expect(renderSummary(changed, ctx, []).startsWith(`> ${CONFIG_NOTE}`)).toBe(true);
     expect(renderNoDriftComment(ctx, checkResult([], { configChanged: true }))).toContain(CONFIG_NOTE);
     expect(renderSummary(checkResult([], { configChanged: true }), ctx, [])).toContain(CONFIG_NOTE);

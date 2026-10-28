@@ -96,7 +96,7 @@ Each line is `line:column  message`; `->` introduces the replacement text the do
 | `findings[].suggestion` | Optional. The replacement text, in the style the doc used. Never present in `scan`. |
 | `findings[].fingerprint` | Stable id of the finding; survives unrelated edits above it. |
 | `warnings` | Conditions that may make the result incomplete. |
-| `configChanged` | Only present, as `true`, when the change itself edits `.drift-ci.yml`: the check ran with the new version. |
+| `configChanged` | Only present, as `true`, when the change itself edits `.drift-ci.yml`. The CLI ran with the head version; the Action always runs with the base branch version. |
 | `failOn` | The effective level the exit code used: `--fail-on` if given, else `failOn` of `.drift-ci.yml`, else `none`. |
 
 ### Exit codes
@@ -154,14 +154,14 @@ A tag can be moved after you reviewed it; a commit SHA cannot.
 
 - **Job summary**: every finding.
 - **Annotations**: the first 10 findings on their lines (GitHub shows at most 10 per step); the summary has the rest. Warnings of the run itself (an unreadable `package.json`, a skipped doc) go to the log and the summary, never to annotations, so they cannot push findings out of the ten.
-- **One sticky PR comment**, updated in place on every push (found by a hidden marker; only a comment by `github-actions[bot]`, or by the user the token belongs to when it is a personal or app token, is edited). Each finding links to the line at `head.sha` (Markdown files open as source, `?plain=1`, so the line anchor works) and shows the suggested replacement. When the pull request itself changes `.drift-ci.yml`, a note at the top says the check used the new configuration. Text quoted from the docs is neutralised: no `@`-mentions, no HTML. When a later push fixes everything, the comment is edited to say "no drift found" rather than deleted; a PR that never had findings gets no comment.
+- **One sticky PR comment**, updated in place on every push (found by a hidden marker; only a comment by `github-actions[bot]`, or by the user the token belongs to when it is a personal or app token, is edited). Each finding links to the line at `head.sha` (Markdown files open as source, `?plain=1`, so the line anchor works) and shows the suggested replacement. The Action reads `.drift-ci.yml` from the base branch, so a pull request cannot loosen or switch off its own check; when the pull request changes `.drift-ci.yml`, a note at the top says the change applies once merged. Text quoted from the docs is neutralised: no `@`-mentions, no HTML. When a later push fixes everything, the comment is edited to say "no drift found" rather than deleted; a PR that never had findings gets no comment.
 - **Fork PRs, or a token without `pull-requests: write`**: summary and annotations only, with a note in the summary. The job does not fail.
 
 ### Inputs
 
 | Input | Default | |
 |---|---|---|
-| `fail-on` | empty | `warning` fails the job when there is at least one finding, `none` never does. Empty uses `failOn` from `.drift-ci.yml` (default `none`). |
+| `fail-on` | empty | `warning` fails the job when there is at least one finding, `none` never does. Empty uses `failOn` from the base branch `.drift-ci.yml` (default `none`). |
 | `comment` | `true` | `false` skips the PR comment. |
 | `github-token` | `${{ github.token }}` | Token for the PR comment. Needs `pull-requests: write`. |
 | `config` | empty | Reserved: only `.drift-ci.yml` at the repository root is read. Any other value is ignored with a warning. |

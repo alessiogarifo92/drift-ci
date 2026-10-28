@@ -26,7 +26,7 @@ export interface RenderContext {
 }
 
 /** Shown above the findings when the pull request edits the config the check ran with. */
-export const CONFIG_NOTE = 'This pull request changes .drift-ci.yml; the check used the new configuration.';
+export const CONFIG_NOTE = 'This pull request changes .drift-ci.yml; the check used the base branch configuration, so the change applies once this is merged.';
 
 /** Rendered Markdown has no line anchors: these files are linked as source (`?plain=1`). */
 const MARKDOWN_FILE = /\.(?:md|mdx|markdown|mdc)$/i;
