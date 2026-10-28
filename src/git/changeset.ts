@@ -125,8 +125,16 @@ export async function computeChangeSet(
 
   let renamedDirs: Rename[] = [];
   if (renamed.length > 0) {
-    const baseFiles = (await (await openSnapshot(repoDir, baseSha, gitOptions)).listFiles()).map((e) => e.path);
-    renamedDirs = deriveDirectoryRenames(renamed, baseFiles);
+    const [baseSnapshot, headSnapshot] = await Promise.all([
+      openSnapshot(repoDir, baseSha, gitOptions),
+      openSnapshot(repoDir, headSha, gitOptions),
+    ]);
+    const [baseEntries, headEntries] = await Promise.all([baseSnapshot.listFiles(), headSnapshot.listFiles()]);
+    renamedDirs = deriveDirectoryRenames(
+      renamed,
+      baseEntries.map((e) => e.path),
+      headEntries.map((e) => e.path),
+    );
   }
 
   return { renamed, deleted, added, modified, renamedDirs, warnings };

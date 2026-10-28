@@ -144,7 +144,7 @@ describe('inline code: env vars', () => {
   it.each([
     ['`FOO_BAR`', ['env:FOO_BAR@1:2/inline-code']],
     ['`$API`', ['env:API@1:2/inline-code']],
-    ['`$api_url`', ['env:api_url@1:2/inline-code']],
+    ['`$api_url`', ['~env:api_url@1:2/inline-code']],
     ['`${API_URL}`', ['env:API_URL@1:2/inline-code']],
     ['`${API_URL:-x}`', ['env:API_URL@1:2/inline-code']],
     ['`FOO_BAR=1`', ['env:FOO_BAR@1:2/inline-code']],
@@ -404,10 +404,10 @@ describe('shell fences', () => {
       expect(scripts.map((r) => r.context?.cwd)).toEqual([undefined, '$DIR']);
     });
 
-    it('ignores cd . and keeps .. as written', () => {
+    it('ignores cd . and normalizes ..', () => {
       const src = fence('sh', 'cd a', 'cd .', 'npm test', 'cd ..', 'npm run up');
       const scripts = ofKind(index(src), 'npm-script');
-      expect(scripts.map((r) => r.context?.cwd)).toEqual(['a', 'a/..']);
+      expect(scripts.map((r) => r.context?.cwd)).toEqual(['a', undefined]);
     });
 
     it('does not carry the directory into the next fence', () => {

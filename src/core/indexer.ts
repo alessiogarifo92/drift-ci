@@ -9,11 +9,18 @@ import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import type { Reference, ReferenceContext, ReferenceKind, ReferenceSource } from './reference.ts';
 import { envVarsIn, scanShellLine, type ShellHit, type ShellState } from './shell.ts';
-import { isAssignedEnvName, isBareEnvName, pathFromCode, pathFromText, pathFromUrl } from './shapes.ts';
+import {
+  isAssignedEnvName,
+  isBareEnvName,
+  pathFromCode,
+  pathFromText,
+  pathFromUrl,
+  type RepoIdentity,
+} from './shapes.ts';
 
 export interface IndexOptions {
   /** The repository the doc lives in: lets same-repo github.com URLs count as paths. */
-  repo?: { owner: string; name: string };
+  repo?: RepoIdentity;
 }
 
 const processor = unified().use(remarkParse).use(remarkGfm).use(remarkFrontmatter, ['yaml']);
@@ -269,11 +276,20 @@ export function indexMarkdown(file: string, content: string, options: IndexOptio
 
 /** Where the URL of a link, image or definition sits in its source, or its start if it cannot be found. */
 function locateUrl(segs: Segment[], url: string, definition: boolean): { seg: Segment; offset: number } {
+  // The URL follows `]:` (definition) or the last `](` (inline link): searching from
+  // there skips the label and stops before a title such as `[x](a.md "a.md")`.
+  const marker = definition ? ']:' : '](';
   for (let k = segs.length - 1; k >= 0; k--) {
     const seg = segs[k] as Segment;
-    const from = definition && k === 0 ? Math.max(seg.text.indexOf(']:') + 2, 0) : 0;
-    const at = definition ? seg.text.indexOf(url, from) : seg.text.lastIndexOf(url);
-    if (url !== '' && at >= 0) return { seg, offset: at };
+    const open = definition ? (k === 0 ? seg.text.indexOf(marker) : -1) : seg.text.lastIndexOf(marker);
+    const from = open >= 0 ? open + 2 : 0;
+    const at = url === '' ? -1 : seg.text.indexOf(url, from);
+    if (at >= 0) return { seg, offset: at };
+    // The decoded URL is not in the source (`a\_b.md`, `a&amp;b.md`): point at the raw URL start.
+    if (open >= 0) {
+      const lead = /^[ \t<]*/.exec(seg.text.slice(from))?.[0].length ?? 0;
+      return { seg, offset: from + lead };
+    }
   }
   const first = segs[0] ?? { text: '', line: 1, col: 1 };
   const label = first.text.startsWith('![') ? 2 : first.text.startsWith('[') && !definition ? 1 : 0;
@@ -281,9 +297,12 @@ function locateUrl(segs: Segment[], url: string, definition: boolean): { seg: Se
 }
 
 const LEADING_PUNCTUATION = /^[([{"'“‘<]+/;
-const TRAILING_PUNCTUATION = /[.,;:!?)\]}"'”’>…]+$/;
+const TRAILING_PUNCTUATION_CHARS = new Set([...'.,;:!?)]}"\'”’>…']);
 
 function trimPunctuation(raw: string): { text: string; lead: number } {
   const lead = LEADING_PUNCTUATION.exec(raw)?.[0].length ?? 0;
-  return { text: raw.slice(lead).replace(TRAILING_PUNCTUATION, ''), lead };
+  // A loop from the end, not a `[…]+$` regex: that one is quadratic on long runs of punctuation.
+  let end = raw.length;
+  while (end > lead && TRAILING_PUNCTUATION_CHARS.has(raw[end - 1] as string)) end--;
+  return { text: raw.slice(lead, end), lead };
 }

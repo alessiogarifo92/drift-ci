@@ -13185,6 +13185,9 @@ function isUint8Array2(value2) {
   );
 }
 
+// src/core/shell.ts
+import { normalize as normalizePosix } from "node:path/posix";
+
 // src/core/shapes.ts
 var KNOWN_FILE_EXTENSIONS = /* @__PURE__ */ new Set([
   "md",
@@ -13320,7 +13323,7 @@ function pathFromCode(token) {
   if (!isMeaningful(normalized) || FRACTION_OR_DATE.test(normalized)) return void 0;
   const ext = extensionOf(normalized);
   if (!normalized.includes("/") && !(ext !== void 0 && KNOWN_FILE_EXTENSIONS.has(ext))) return void 0;
-  return { normalized, shadow: glob };
+  return { normalized, shadow: glob || normalized.startsWith("/") };
 }
 function pathFromText(token) {
   if (SCHEME_URL.test(token) || OPAQUE_SCHEME.test(token)) return void 0;
@@ -13343,16 +13346,18 @@ function pathFromText(token) {
   if (/^[A-Za-z]\/$/.test(normalized) || FRACTION_OR_DATE.test(normalized)) return void 0;
   if (first !== "" && !bare.startsWith(".") && DOMAIN_FIRST_SEGMENT.test(first)) return void 0;
   if (!trailingSlash && !TEXT_EXTENSION.test(normalized)) return void 0;
-  return { normalized, shadow: glob };
+  return { normalized, shadow: glob || normalized.startsWith("/") };
 }
+var LIVE_REFS = /* @__PURE__ */ new Set(["main", "master", "HEAD", "trunk"]);
 function githubRepoPath(url, repo) {
-  const match = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/(?:blob|tree)\/[^/]+\/(.+)$/i.exec(url);
+  const match = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/(?:blob|tree)\/([^/]+)\/(.+)$/i.exec(url);
   if (!match) return void 0;
-  const [, owner, name, rest] = match;
+  const [, owner, name, ref = "", rest = ""] = match;
   if (owner?.toLowerCase() !== repo.owner.toLowerCase() || name?.toLowerCase() !== repo.name.toLowerCase()) {
     return void 0;
   }
-  return rest;
+  const live = LIVE_REFS.has(ref) || repo.defaultBranch !== void 0 && ref === repo.defaultBranch;
+  return { path: rest, live };
 }
 function decode2(path2) {
   try {
@@ -13365,10 +13370,12 @@ function pathFromUrl(url, repo) {
   const trimmed = url.trim();
   let target;
   let anchored = false;
+  let pinned = false;
   if (/^[a-z][a-z0-9+.-]+:/i.test(trimmed) || trimmed.startsWith("//")) {
     const repoPath = repo ? githubRepoPath(trimmed, repo) : void 0;
     if (repoPath === void 0) return void 0;
-    target = repoPath;
+    target = repoPath.path;
+    pinned = !repoPath.live;
     anchored = true;
   } else {
     target = trimmed;
@@ -13379,7 +13386,7 @@ function pathFromUrl(url, repo) {
   const decoded = stripDotSlash(decode2(withoutQuery));
   const normalized = anchored ? `/${decoded}` : decoded;
   if (!isMeaningful(normalized)) return void 0;
-  return { normalized, shadow: GLOB_CHARS.test(normalized) };
+  return { normalized, shadow: pinned || GLOB_CHARS.test(normalized) };
 }
 
 // src/core/shell.ts
@@ -13718,7 +13725,7 @@ var PM_WORKSPACE_FLAGS = {
   bun: /* @__PURE__ */ new Set(["--filter", "-F"])
 };
 var PM_DIR_FLAGS = {
-  npm: /* @__PURE__ */ new Set(["--prefix"]),
+  npm: /* @__PURE__ */ new Set(["--prefix", "-C"]),
   pnpm: /* @__PURE__ */ new Set(["-C", "--dir"]),
   yarn: /* @__PURE__ */ new Set(["--cwd"]),
   bun: /* @__PURE__ */ new Set(["--cwd"])
@@ -13827,8 +13834,11 @@ function isRedirectAmpersand(text5, at) {
 function joinCwd(base, dir) {
   const trimmed = stripCwd(dir);
   if (trimmed === "") return base;
-  if (/^[/~$]/.test(trimmed) || base === void 0) return trimmed;
-  return `${base}/${trimmed}`;
+  if (/^[/~$`]/.test(trimmed)) return trimmed;
+  if (/[$`]/.test(trimmed)) return `$${trimmed}`;
+  if (base !== void 0 && /^[/~$`]/.test(base)) return base;
+  const joined = normalizePosix(base === void 0 ? trimmed : `${base}/${trimmed}`);
+  return joined === "." ? void 0 : joined;
 }
 function stripCwd(dir) {
   let out = dir;
@@ -13840,13 +13850,14 @@ function splitFlag(flag) {
   const eq = flag.indexOf("=");
   return eq > 0 ? [flag.slice(0, eq), flag.slice(eq + 1)] : [flag, void 0];
 }
-function dollarHits(text5, skip, from = 0) {
+function dollarHits(text5, skip, from = 0, inline = false) {
   const hits = [];
   for (const match of text5.matchAll(DOLLAR_VAR)) {
     const name = match[1] ?? match[2];
     if (name === void 0 || match.index < from || !isUsedEnvName(name)) continue;
     if (skip.some(([a, b]) => match.index >= a && match.index < b)) continue;
-    hits.push({ kind: "env", normalized: name, offset: match.index, shadow: false });
+    const shadow = inline && name !== name.toUpperCase();
+    hits.push({ kind: "env", normalized: name, offset: match.index, shadow });
   }
   return hits;
 }
@@ -13967,8 +13978,21 @@ function pathHit(word) {
 function applyCd(words, state) {
   const args = words.filter((w) => w.value === "-" || !w.value.startsWith("-"));
   const dir = args[0]?.value;
+  if (dir !== void 0 && state.cwd === void 0 && state.cloned !== void 0 && stripCwd(dir) === state.cloned) {
+    delete state.cloned;
+    return;
+  }
   state.cwd = dir === void 0 || dir === "-" ? void 0 : joinCwd(state.cwd, dir);
 }
+function applyClone(args, state) {
+  if (args[0]?.value !== "clone") return;
+  const positional = args.slice(1).filter((w) => !w.value.startsWith("-")).map((w) => w.value);
+  const [url, dir] = positional;
+  if (url === void 0) return;
+  const target = dir ?? url.replace(/\/+$/, "").split(/[/:]/).pop()?.replace(/\.git$/, "");
+  if (target) state.cloned = stripCwd(target);
+}
+var LEADING_KEYWORDS = /* @__PURE__ */ new Set(["if", "then", "else", "elif", "do", "while", "until", "!", "{"]);
 function segmentHits(words, state, inline) {
   const hits = [];
   let i = 0;
@@ -13978,6 +14002,8 @@ function segmentHits(words, state, inline) {
     if (assignment) {
       const name2 = assignment[1];
       if (isAssignedEnvName(name2)) hits.push({ kind: "env", normalized: name2, offset: word.rawStart, shadow: false });
+      i++;
+    } else if (LEADING_KEYWORDS.has(word.value)) {
       i++;
     } else if (WRAPPERS.has(word.value)) {
       const sudoLike = word.value === "sudo" || word.value === "doas";
@@ -13997,6 +14023,7 @@ function segmentHits(words, state, inline) {
     applyCd(args, state);
     return hits;
   }
+  if (name === "git") applyClone(args, state);
   if (name === "npm" || name === "pnpm" || name === "yarn" || name === "bun") {
     return [...hits, ...packageManagerHits(name, args, state)];
   }
@@ -14020,7 +14047,7 @@ function segmentHits(words, state, inline) {
 }
 function scanShellLine(text5, state, options) {
   const { tokens, skip } = lex(text5);
-  const hits = dollarHits(text5, skip);
+  const hits = dollarHits(text5, skip, 0, options.inline);
   const allWords = tokens.flatMap((t) => t.type === "word" ? [t.word] : []);
   const { heredoc } = dropRedirects(allWords);
   if (options.mode === "command") {
@@ -14045,7 +14072,8 @@ function scanShellLine(text5, state, options) {
 }
 function continuation(text5) {
   const trimmed = text5.trimEnd();
-  const backslashes = trimmed.length - trimmed.replace(/\\+$/, "").length;
+  let backslashes = 0;
+  while (backslashes < trimmed.length && trimmed[trimmed.length - 1 - backslashes] === "\\") backslashes++;
   const body = backslashes % 2 === 1 ? trimmed.slice(0, -1).trimEnd() : trimmed;
   const endsWithOperator = /(?:&&|\|\||\|)$/.test(body);
   if (endsWithOperator) return "start";
@@ -14253,21 +14281,29 @@ function indexMarkdown(file, content3, options = {}) {
   return [...found.values()].sort((a, b) => a.line - b.line || a.col - b.col);
 }
 function locateUrl(segs, url, definition3) {
+  const marker = definition3 ? "]:" : "](";
   for (let k = segs.length - 1; k >= 0; k--) {
     const seg = segs[k];
-    const from = definition3 && k === 0 ? Math.max(seg.text.indexOf("]:") + 2, 0) : 0;
-    const at = definition3 ? seg.text.indexOf(url, from) : seg.text.lastIndexOf(url);
-    if (url !== "" && at >= 0) return { seg, offset: at };
+    const open = definition3 ? k === 0 ? seg.text.indexOf(marker) : -1 : seg.text.lastIndexOf(marker);
+    const from = open >= 0 ? open + 2 : 0;
+    const at = url === "" ? -1 : seg.text.indexOf(url, from);
+    if (at >= 0) return { seg, offset: at };
+    if (open >= 0) {
+      const lead = /^[ \t<]*/.exec(seg.text.slice(from))?.[0].length ?? 0;
+      return { seg, offset: from + lead };
+    }
   }
   const first = segs[0] ?? { text: "", line: 1, col: 1 };
   const label = first.text.startsWith("![") ? 2 : first.text.startsWith("[") && !definition3 ? 1 : 0;
   return { seg: first, offset: label };
 }
 var LEADING_PUNCTUATION = /^[([{"'“‘<]+/;
-var TRAILING_PUNCTUATION = /[.,;:!?)\]}"'”’>…]+$/;
+var TRAILING_PUNCTUATION_CHARS = /* @__PURE__ */ new Set([...`.,;:!?)]}"'\u201D\u2019>\u2026`]);
 function trimPunctuation(raw) {
   const lead = LEADING_PUNCTUATION.exec(raw)?.[0].length ?? 0;
-  return { text: raw.slice(lead).replace(TRAILING_PUNCTUATION, ""), lead };
+  let end = raw.length;
+  while (end > lead && TRAILING_PUNCTUATION_CHARS.has(raw[end - 1])) end--;
+  return { text: raw.slice(lead, end), lead };
 }
 
 // src/core/check.ts
@@ -14493,7 +14529,7 @@ function ancestorDirs(path2) {
   for (let i = 1; i < segments.length; i++) dirs.push(segments.slice(0, i).join("/"));
   return dirs;
 }
-function deriveDirectoryRenames(renames, baseFiles) {
+function deriveDirectoryRenames(renames, baseFiles, headFiles) {
   const baseSet = new Set(baseFiles);
   const filesUnder = /* @__PURE__ */ new Map();
   for (const file of baseSet) {
@@ -14522,7 +14558,10 @@ function deriveDirectoryRenames(renames, baseFiles) {
     const outerTo = completeTo.get(outer);
     return outerTo !== void 0 && to === `${outerTo}${from.slice(outer.length)}`;
   });
-  return [...completeTo].filter(([from, to]) => !implied(from, to)).map(([from, to]) => ({ from, to, similarity: 100 })).sort((a, b) => compareStrings2(a.from, b.from));
+  const headDirs = /* @__PURE__ */ new Set();
+  for (const file of headFiles ?? []) for (const dir of ancestorDirs(file)) headDirs.add(dir);
+  const stillThere = (from, to) => headFiles !== void 0 && (headDirs.has(from) || to.startsWith(`${from}/`));
+  return [...completeTo].filter(([from, to]) => !implied(from, to) && !stillThere(from, to)).map(([from, to]) => ({ from, to, similarity: 100 })).sort((a, b) => compareStrings2(a.from, b.from));
 }
 
 // src/git/errors.ts
@@ -14745,6 +14784,7 @@ async function openSnapshot(repoDir, rev, options = {}) {
           "grep",
           "-z",
           "-n",
+          "--no-column",
           "-F",
           "-w",
           "-I",
@@ -14845,8 +14885,16 @@ async function computeChangeSet(repoDir, base, head, options = {}) {
   if (warning !== void 0) warnings.push(warning);
   let renamedDirs = [];
   if (renamed.length > 0) {
-    const baseFiles = (await (await openSnapshot(repoDir, baseSha, gitOptions)).listFiles()).map((e) => e.path);
-    renamedDirs = deriveDirectoryRenames(renamed, baseFiles);
+    const [baseSnapshot, headSnapshot] = await Promise.all([
+      openSnapshot(repoDir, baseSha, gitOptions),
+      openSnapshot(repoDir, headSha, gitOptions)
+    ]);
+    const [baseEntries, headEntries] = await Promise.all([baseSnapshot.listFiles(), headSnapshot.listFiles()]);
+    renamedDirs = deriveDirectoryRenames(
+      renamed,
+      baseEntries.map((e) => e.path),
+      headEntries.map((e) => e.path)
+    );
   }
   return { renamed, deleted, added, modified, renamedDirs, warnings };
 }

@@ -49,6 +49,13 @@ export function isUsedEnvName(name: string): boolean {
   return !isWellKnownEnv(name);
 }
 
+/** The repository a doc lives in. `defaultBranch` lets links into it count as live, like `main`. */
+export interface RepoIdentity {
+  owner: string;
+  name: string;
+  defaultBranch?: string;
+}
+
 export interface PathShape {
   normalized: string;
   shadow: boolean;
@@ -96,7 +103,8 @@ export function pathFromCode(token: string): PathShape | undefined {
   if (!isMeaningful(normalized) || FRACTION_OR_DATE.test(normalized)) return undefined;
   const ext = extensionOf(normalized);
   if (!normalized.includes('/') && !(ext !== undefined && KNOWN_FILE_EXTENSIONS.has(ext))) return undefined;
-  return { normalized, shadow: glob };
+  // Outside links a leading '/' is a filesystem path (`/etc/nginx/nginx.conf`), not the repo root.
+  return { normalized, shadow: glob || normalized.startsWith('/') };
 }
 
 /**
@@ -127,18 +135,26 @@ export function pathFromText(token: string): PathShape | undefined {
   if (/^[A-Za-z]\/$/.test(normalized) || FRACTION_OR_DATE.test(normalized)) return undefined;
   if (first !== '' && !bare.startsWith('.') && DOMAIN_FIRST_SEGMENT.test(first)) return undefined;
   if (!trailingSlash && !TEXT_EXTENSION.test(normalized)) return undefined;
-  return { normalized, shadow: glob };
+  return { normalized, shadow: glob || normalized.startsWith('/') };
 }
 
-/** Same-repo `github.com/<owner>/<repo>/(blob|tree)/<ref>/<path>` URLs map to a root-anchored path. */
-function githubRepoPath(url: string, repo: { owner: string; name: string }): string | undefined {
-  const match = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/(?:blob|tree)\/[^/]+\/(.+)$/i.exec(url);
+/** Branch names that track the tip of the repository, so a link into them follows renames. */
+const LIVE_REFS: ReadonlySet<string> = new Set(['main', 'master', 'HEAD', 'trunk']);
+
+/**
+ * Same-repo `github.com/<owner>/<repo>/(blob|tree)/<ref>/<path>` URLs map to a
+ * root-anchored path. `live` is false for a ref pinned to a commit, a tag or
+ * another branch: such a link keeps working after a rename, so it must not be reported.
+ */
+function githubRepoPath(url: string, repo: RepoIdentity): { path: string; live: boolean } | undefined {
+  const match = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/(?:blob|tree)\/([^/]+)\/(.+)$/i.exec(url);
   if (!match) return undefined;
-  const [, owner, name, rest] = match;
+  const [, owner, name, ref = '', rest = ''] = match;
   if (owner?.toLowerCase() !== repo.owner.toLowerCase() || name?.toLowerCase() !== repo.name.toLowerCase()) {
     return undefined;
   }
-  return rest;
+  const live = LIVE_REFS.has(ref) || (repo.defaultBranch !== undefined && ref === repo.defaultBranch);
+  return { path: rest, live };
 }
 
 function decode(path: string): string {
@@ -153,14 +169,16 @@ function decode(path: string): string {
  * Path of a link, image or definition URL: relative URLs and same-repo GitHub
  * URLs only, anchor and query stripped, percent-decoded.
  */
-export function pathFromUrl(url: string, repo: { owner: string; name: string } | undefined): PathShape | undefined {
+export function pathFromUrl(url: string, repo: RepoIdentity | undefined): PathShape | undefined {
   const trimmed = url.trim();
   let target: string;
   let anchored = false;
+  let pinned = false;
   if (/^[a-z][a-z0-9+.-]+:/i.test(trimmed) || trimmed.startsWith('//')) {
     const repoPath = repo ? githubRepoPath(trimmed, repo) : undefined;
     if (repoPath === undefined) return undefined;
-    target = repoPath;
+    target = repoPath.path;
+    pinned = !repoPath.live;
     anchored = true;
   } else {
     target = trimmed;
@@ -171,5 +189,5 @@ export function pathFromUrl(url: string, repo: { owner: string; name: string } |
   const decoded = stripDotSlash(decode(withoutQuery));
   const normalized = anchored ? `/${decoded}` : decoded;
   if (!isMeaningful(normalized)) return undefined;
-  return { normalized, shadow: GLOB_CHARS.test(normalized) };
+  return { normalized, shadow: pinned || GLOB_CHARS.test(normalized) };
 }

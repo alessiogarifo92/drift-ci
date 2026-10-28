@@ -143,7 +143,7 @@ export async function openSnapshot(
       const { stdout } = await runGit(
         repoDir,
         [
-          'grep', '-z', '-n', '-F', '-w', '-I', '--no-color', '--no-recurse-submodules',
+          'grep', '-z', '-n', '--no-column', '-F', '-w', '-I', '--no-color', '--no-recurse-submodules',
           '-e', word, commit,
           ...(pathspecs.length > 0 ? ['--', ...pathspecs] : []),
         ],

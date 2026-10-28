@@ -2,6 +2,7 @@
 // command line makes (package.json scripts, Make targets, env vars, binaries)
 // without trying to be a shell. Anything it cannot read confidently is skipped.
 import type { ReferenceContext, ReferenceKind } from './reference.ts';
+import { normalize as normalizePosix } from 'node:path/posix';
 import { isAssignedEnvName, isUsedEnvName, pathFromCode } from './shapes.ts';
 
 /**
@@ -81,8 +82,14 @@ export interface ShellHit {
 }
 
 export interface ShellState {
-  /** Working directory set by `cd`, raw as written. Carried from line to line. */
+  /**
+   * Working directory set by `cd`, relative to the doc's directory and normalized;
+   * values starting with `/`, `~`, `$` or a backtick are not repo directories.
+   * Carried from line to line.
+   */
   cwd: string | undefined;
+  /** Directory created by the last `git clone`: a `cd` into it lands at the repo root. */
+  cloned?: string;
 }
 
 export interface ShellScan {
@@ -121,7 +128,7 @@ const PM_WORKSPACE_FLAGS: Record<Manager, ReadonlySet<string>> = {
   bun: new Set(['--filter', '-F']),
 };
 const PM_DIR_FLAGS: Record<Manager, ReadonlySet<string>> = {
-  npm: new Set(['--prefix']),
+  npm: new Set(['--prefix', '-C']),
   pnpm: new Set(['-C', '--dir']),
   yarn: new Set(['--cwd']),
   bun: new Set(['--cwd']),
@@ -216,11 +223,21 @@ function isRedirectAmpersand(text: string, at: number): boolean {
   return prev === '>' || prev === '<' || text.charAt(at + 1) === '>';
 }
 
+/**
+ * The working directory after `cd dir`. Relative directories chain and are
+ * normalized (`a/b/../..` is the doc's own directory, i.e. undefined). A directory
+ * that cannot be known statically (`$X`, `$(...)`, `~`, backticks) is kept raw
+ * (starting with `$`, `~` or a backtick) and absolute ones keep their leading `/`:
+ * consumers treat only relative values as repo directories.
+ */
 function joinCwd(base: string | undefined, dir: string): string | undefined {
   const trimmed = stripCwd(dir);
   if (trimmed === '') return base;
-  if (/^[/~$]/.test(trimmed) || base === undefined) return trimmed;
-  return `${base}/${trimmed}`;
+  if (/^[/~$`]/.test(trimmed)) return trimmed;
+  if (/[$`]/.test(trimmed)) return `$${trimmed}`; // `packages/$PKG`: unknowable, marked dynamic
+  if (base !== undefined && /^[/~$`]/.test(base)) return base;
+  const joined = normalizePosix(base === undefined ? trimmed : `${base}/${trimmed}`);
+  return joined === '.' ? undefined : joined;
 }
 
 function stripCwd(dir: string): string {
@@ -236,13 +253,18 @@ function splitFlag(flag: string): [string, string | undefined] {
   return eq > 0 ? [flag.slice(0, eq), flag.slice(eq + 1)] : [flag, undefined];
 }
 
-function dollarHits(text: string, skip: Array<[number, number]>, from = 0): ShellHit[] {
+/**
+ * `$X` / `${X}` uses. In inline code a lower-case `$name` is usually not a variable
+ * (`$schema`, `$ref`, i18n `$t`), so it is reported only when upper-case there.
+ */
+function dollarHits(text: string, skip: Array<[number, number]>, from = 0, inline = false): ShellHit[] {
   const hits: ShellHit[] = [];
   for (const match of text.matchAll(DOLLAR_VAR)) {
     const name = match[1] ?? match[2];
     if (name === undefined || match.index < from || !isUsedEnvName(name)) continue;
     if (skip.some(([a, b]) => match.index >= a && match.index < b)) continue;
-    hits.push({ kind: 'env', normalized: name, offset: match.index, shadow: false });
+    const shadow = inline && name !== name.toUpperCase();
+    hits.push({ kind: 'env', normalized: name, offset: match.index, shadow });
   }
   return hits;
 }
@@ -379,8 +401,26 @@ function pathHit(word: Word): ShellHit | undefined {
 function applyCd(words: Word[], state: ShellState): void {
   const args = words.filter((w) => w.value === '-' || !w.value.startsWith('-'));
   const dir = args[0]?.value;
+  if (dir !== undefined && state.cwd === undefined && state.cloned !== undefined && stripCwd(dir) === state.cloned) {
+    // `git clone <url> && cd <repo>`: the README's own repository root.
+    delete state.cloned;
+    return;
+  }
   state.cwd = dir === undefined || dir === '-' ? undefined : joinCwd(state.cwd, dir);
 }
+
+/** Records the directory `git clone <url> [dir]` creates. */
+function applyClone(args: Word[], state: ShellState): void {
+  if (args[0]?.value !== 'clone') return;
+  const positional = args.slice(1).filter((w) => !w.value.startsWith('-')).map((w) => w.value);
+  const [url, dir] = positional;
+  if (url === undefined) return;
+  const target = dir ?? url.replace(/\/+$/, '').split(/[/:]/).pop()?.replace(/\.git$/, '');
+  if (target) state.cloned = stripCwd(target);
+}
+
+/** Keywords that open a command position: `then npm run x`, `do make y`. */
+const LEADING_KEYWORDS: ReadonlySet<string> = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{']);
 
 function segmentHits(words: Word[], state: ShellState, inline: boolean): ShellHit[] {
   const hits: ShellHit[] = [];
@@ -391,6 +431,8 @@ function segmentHits(words: Word[], state: ShellState, inline: boolean): ShellHi
     if (assignment) {
       const name = assignment[1] as string;
       if (isAssignedEnvName(name)) hits.push({ kind: 'env', normalized: name, offset: word.rawStart, shadow: false });
+      i++;
+    } else if (LEADING_KEYWORDS.has(word.value)) {
       i++;
     } else if (WRAPPERS.has(word.value)) {
       const sudoLike = word.value === 'sudo' || word.value === 'doas';
@@ -411,6 +453,7 @@ function segmentHits(words: Word[], state: ShellState, inline: boolean): ShellHi
     applyCd(args, state);
     return hits;
   }
+  if (name === 'git') applyClone(args, state);
   if (name === 'npm' || name === 'pnpm' || name === 'yarn' || name === 'bun') {
     return [...hits, ...packageManagerHits(name, args, state)];
   }
@@ -445,7 +488,7 @@ export function scanShellLine(
   options: { mode: 'command' | 'args'; inline: boolean },
 ): ShellScan {
   const { tokens, skip } = lex(text);
-  const hits = dollarHits(text, skip);
+  const hits = dollarHits(text, skip, 0, options.inline);
   const allWords = tokens.flatMap((t) => (t.type === 'word' ? [t.word] : []));
   const { heredoc } = dropRedirects(allWords);
 
@@ -473,7 +516,8 @@ export function scanShellLine(
 
 function continuation(text: string): ShellScan['next'] {
   const trimmed = text.trimEnd();
-  const backslashes = trimmed.length - trimmed.replace(/\\+$/, '').length;
+  let backslashes = 0; // counted with a loop: a `\\+$` regex is quadratic on long runs
+  while (backslashes < trimmed.length && trimmed[trimmed.length - 1 - backslashes] === '\\') backslashes++;
   const body = backslashes % 2 === 1 ? trimmed.slice(0, -1).trimEnd() : trimmed;
   const endsWithOperator = /(?:&&|\|\||\|)$/.test(body);
   if (endsWithOperator) return 'start';

@@ -3,13 +3,14 @@
 // it knows about the repository comes through the two snapshots and the change set.
 import { fingerprint, FINDING_SCHEMA_VERSION, type CheckResult, type Finding } from './finding.ts';
 import { indexMarkdown, isIndexedDoc } from './indexer.ts';
+import type { RepoIdentity } from './shapes.ts';
 import type { CheckContext, DiffHunk, Rule } from './rules.ts';
 import type { ChangeSet, RepoSnapshot } from './snapshot.ts';
 
 export interface CheckOptions {
   rules: readonly Rule[];
   /** The repository the docs live in: lets same-repo github.com URLs count as paths. */
-  repo?: { owner: string; name: string };
+  repo?: RepoIdentity;
   /** Which head files are docs to index. Default: `isIndexedDoc`. */
   docFilter?: (path: string) => boolean;
   /** Zero-context diff hunks, for rules that look at removed lines (env vars). */

@@ -79,6 +79,7 @@ function ancestorDirs(path: string): string[] {
 export function deriveDirectoryRenames(
   renames: readonly Rename[],
   baseFiles: readonly string[],
+  headFiles?: readonly string[],
 ): Rename[] {
   const baseSet = new Set(baseFiles);
 
@@ -117,8 +118,15 @@ export function deriveDirectoryRenames(
       return outerTo !== undefined && to === `${outerTo}${from.slice(outer.length)}`;
     });
 
+  // With the head listing: a directory that still holds files in head, or that moved
+  // into its own subtree (`src` → `src/lib`), was not renamed as a whole.
+  const headDirs = new Set<string>();
+  for (const file of headFiles ?? []) for (const dir of ancestorDirs(file)) headDirs.add(dir);
+  const stillThere = (from: string, to: string): boolean =>
+    headFiles !== undefined && (headDirs.has(from) || to.startsWith(`${from}/`));
+
   return [...completeTo]
-    .filter(([from, to]) => !implied(from, to))
+    .filter(([from, to]) => !implied(from, to) && !stillThere(from, to))
     .map(([from, to]) => ({ from, to, similarity: 100 }))
     .sort((a, b) => compareStrings(a.from, b.from));
 }

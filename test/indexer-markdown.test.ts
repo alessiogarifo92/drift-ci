@@ -37,13 +37,13 @@ describe('links, images and definitions', () => {
     expect(brief(index('[x](<my file.md>)'))).toEqual(['path:my file.md@1:6/link']);
   });
 
-  it('points at the link text when the URL cannot be located in the source', () => {
-    expect(brief(index('[x](a&amp;b.md)'))).toEqual(['path:a&b.md@1:2/link']);
+  it('points at the raw URL when the decoded URL is not in the source', () => {
+    expect(brief(index('[x](a&amp;b.md)'))).toEqual(['path:a&b.md@1:5/link']);
   });
 
-  it('falls back to the image start or the definition start when the URL cannot be located', () => {
-    expect(brief(index('![x](a&amp;b.png)'))).toEqual(['path:a&b.png@1:3/image']);
-    expect(brief(index('[ref]: <a&amp;b.md>'))).toEqual(['path:a&b.md@1:1/definition']);
+  it('points at the raw URL of an image or a definition when the decoded URL is not in the source', () => {
+    expect(brief(index('![x](a&amp;b.png)'))).toEqual(['path:a&b.png@1:6/image']);
+    expect(brief(index('[ref]: <a&amp;b.md>'))).toEqual(['path:a&b.md@1:9/definition']);
   });
 
   it('locates the URL on the last line of a link split across lines', () => {
@@ -94,9 +94,9 @@ describe('links, images and definitions', () => {
       expect(brief(index(src, { repo }))).toEqual(['path:/src/a.ts@1:5/link']);
     });
 
-    it('maps a tree URL and percent-decodes the path', () => {
+    it('maps a tree URL and percent-decodes the path (shadow: pinned to a tag)', () => {
       expect(brief(index('[x](https://github.com/acme/widget/tree/v1.0/my%20docs/)', { repo }))).toEqual([
-        'path:/my docs/@1:5/link',
+        '~path:/my docs/@1:5/link',
       ]);
     });
 
@@ -136,7 +136,7 @@ describe('inline code', () => {
     ['`./src/a.ts#L3`', ['path:src/a.ts@1:2/inline-code']],
     ['`src/`', ['path:src/@1:2/inline-code']],
     ['`../shared/x.json`', ['path:../shared/x.json@1:2/inline-code']],
-    ['`/docs/a.md`', ['path:/docs/a.md@1:2/inline-code']],
+    ['`/docs/a.md`', ['~path:/docs/a.md@1:2/inline-code']],
     ['`Next.js`', ['path:Next.js@1:2/inline-code']],
     ['`src/**/*.ts`', ['~path:src/**/*.ts@1:2/inline-code']],
     ['`docs/{a,b}.md`', ['~path:docs/{a,b}.md@1:2/inline-code']],
@@ -186,7 +186,7 @@ describe('plain text', () => {
     ['See ftp://example.com/a/b.md', []],
     ['Visit github.com/acme/widget/README.md now', []],
     ['Read docs/a.md#install', ['path:docs/a.md@1:6/text']],
-    ['Edit /docs/a.md', ['path:/docs/a.md@1:6/text']],
+    ['Edit /docs/a.md', ['~path:/docs/a.md@1:6/text']],
     ['A ratio of 1.5/2.0 and TCP/IP', []],
     ['See https://example.com/a/b.md', []],
     ['Mail me at a@b.co or visit example.com', []],
