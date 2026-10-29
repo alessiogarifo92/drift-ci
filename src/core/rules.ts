@@ -1,7 +1,7 @@
 // The contract between the check harness (check.ts) and the rules that decide
 // whether a reference found in a head doc has drifted.
-import type { Reference, ReferenceKind } from './reference.ts';
-import type { ChangeSet, RepoSnapshot, SnapshotEntry } from './snapshot.ts';
+import type { Reference, ReferenceKind } from "./reference.ts";
+import type { ChangeSet, RepoSnapshot, SnapshotEntry } from "./snapshot.ts";
 
 /** Changed lines of one file, from a zero-context diff (`git diff -U0 base head`). */
 export interface DiffHunk {
@@ -48,6 +48,13 @@ export interface Rule {
   prepare(ctx: CheckContext): Promise<void>;
   /** Drift for one non-shadow reference found in a head doc, or `undefined`. */
   check(ref: Reference, doc: { path: string }): Drift | undefined;
+  /**
+   * Called after `prepare`, diff mode only: strings, lowercase, such that `check` can flag a reference of a
+   * doc only when the doc's text contains one of them (compared lowercase, backslash escapes removed). An
+   * empty list means `check` will flag nothing; `undefined` (or no method) means the rule cannot tell.
+   * Lets the check skip parsing the docs no change can affect.
+   */
+  needles?(): readonly string[] | undefined;
   /**
    * Scan mode (beta): drift for a non-shadow reference that resolves to nothing at head, judged without a
    * base (no `renamed`, no suggestion). Called after `prepare` on a context whose base is the head. A rule

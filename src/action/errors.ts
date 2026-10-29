@@ -2,7 +2,7 @@
 export class ActionError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
-    this.name = 'ActionError';
+    this.name = "ActionError";
   }
 }
 

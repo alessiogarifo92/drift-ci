@@ -1,16 +1,27 @@
 // What the Markdown indexer extracts from a doc. Resolving a reference against
 // repository contents is the Matcher's job, not the indexer's.
 
-export type ReferenceKind = 'path' | 'npm-script' | 'make-target' | 'env' | 'command';
+export type ReferenceKind =
+  | "path"
+  | "npm-script"
+  | "make-target"
+  | "env"
+  | "command";
 
-export type ReferenceSource = 'link' | 'image' | 'definition' | 'inline-code' | 'fence' | 'text';
+export type ReferenceSource =
+  | "link"
+  | "image"
+  | "definition"
+  | "inline-code"
+  | "fence"
+  | "text";
 
 export interface ReferenceContext {
   /** From a preceding `cd <dir>` in the same fence, `cd dir && ...` or a `-C`/`--prefix` flag; raw as written. */
   cwd?: string;
   /** From `npm -w <pkg>` / `--workspace=<pkg>`, `pnpm --filter <pkg>` / `-F <pkg>`, `yarn workspace <pkg>`. */
   workspace?: string;
-  packageManager?: 'npm' | 'pnpm' | 'yarn' | 'bun';
+  packageManager?: "npm" | "pnpm" | "yarn" | "bun";
   /** The command runs the script in every workspace: `-r`, `--recursive`, `--workspaces`, `-ws`, or a `--filter` glob. */
   allWorkspaces?: true;
 }

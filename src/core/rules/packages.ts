@@ -1,8 +1,8 @@
 // Shared by the npm-script and bin rules: every package.json of a commit, parsed
 // without throwing, and the lookups a doc reference needs to find its package.
-import { posix } from 'node:path';
-import type { CheckContext } from '../rules.ts';
-import type { RepoSnapshot, SnapshotEntry } from '../snapshot.ts';
+import { posix } from "node:path";
+import type { CheckContext } from "../rules.ts";
+import type { RepoSnapshot, SnapshotEntry } from "../snapshot.ts";
 
 export interface PackageInfo {
   /** Repo-relative path of the package.json. */
@@ -33,39 +33,54 @@ export interface Packages {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function stringEntries(value: unknown): Map<string, string> {
   const result = new Map<string, string>();
   if (!isRecord(value)) return result;
-  for (const [key, body] of Object.entries(value)) if (typeof body === 'string') result.set(key, body);
+  for (const [key, body] of Object.entries(value))
+    if (typeof body === "string") result.set(key, body);
   return result;
 }
 
 /** Parses one package.json; never throws: an unreadable one is `{ error }` (the reason). */
-export function parsePackageJson(path: string, text: string): PackageInfo | { error: string } {
+export function parsePackageJson(
+  path: string,
+  text: string,
+): PackageInfo | { error: string } {
   let data: unknown;
   try {
-    data = JSON.parse(text.replace(/^\uFEFF/, ''));
+    data = JSON.parse(text.replace(/^\uFEFF/, ""));
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
-  if (!isRecord(data)) return { error: 'not a JSON object' };
+  if (!isRecord(data)) return { error: "not a JSON object" };
 
-  const name = typeof data.name === 'string' && data.name !== '' ? data.name : undefined;
+  const name =
+    typeof data.name === "string" && data.name !== "" ? data.name : undefined;
   const bins = new Map<string, string>();
-  if (typeof data.bin === 'string') {
-    if (name !== undefined) bins.set(name.replace(/^@[^/]+\//, ''), data.bin);
+  if (typeof data.bin === "string") {
+    if (name !== undefined) bins.set(name.replace(/^@[^/]+\//, ""), data.bin);
   } else {
-    for (const [binName, file] of stringEntries(data.bin)) bins.set(binName, file);
+    for (const [binName, file] of stringEntries(data.bin))
+      bins.set(binName, file);
   }
   const dir = posix.dirname(path);
-  return { path, dir: dir === '.' ? '' : dir, name, scripts: stringEntries(data.scripts), bins };
+  return {
+    path,
+    dir: dir === "." ? "" : dir,
+    name,
+    scripts: stringEntries(data.scripts),
+    bins,
+  };
 }
 
 function normalizeWorkspace(value: string): string {
-  return posix.normalize(value).replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
+  return posix
+    .normalize(value)
+    .replace(/^(?:\.\/)+/, "")
+    .replace(/\/+$/, "");
 }
 
 function packageSet(packages: readonly PackageInfo[]): PackageSet {
@@ -75,19 +90,22 @@ function packageSet(packages: readonly PackageInfo[]): PackageSet {
     packages,
     at,
     nearest(dir) {
-      let current = dir === '.' ? '' : dir;
+      let current = dir === "." ? "" : dir;
       for (;;) {
         const found = byDir.get(current);
         if (found !== undefined) return found;
-        if (current === '') return undefined;
+        if (current === "") return undefined;
         const parent = posix.dirname(current);
-        current = parent === '.' ? '' : parent;
+        current = parent === "." ? "" : parent;
       }
     },
     byWorkspace(value) {
       const wanted = normalizeWorkspace(value);
-      if (wanted === '' || wanted === '.' || /[*?{}]/.test(wanted)) return undefined; // empty or a glob
-      const byName = packages.filter((p) => p.name === value || p.name === wanted);
+      if (wanted === "" || wanted === "." || /[*?{}]/.test(wanted))
+        return undefined; // empty or a glob
+      const byName = packages.filter(
+        (p) => p.name === value || p.name === wanted,
+      );
       if (byName.length === 1) return byName[0];
       const exact = byDir.get(wanted);
       if (exact !== undefined) return exact;
@@ -99,7 +117,11 @@ function packageSet(packages: readonly PackageInfo[]): PackageSet {
 
 /** Directory names whose content is test data or someone else's code, never part of the project's inventory. */
 const INVENTORY_EXCLUDED_SEGMENTS: ReadonlySet<string> = new Set([
-  'fixtures', '__fixtures__', 'testdata', 'node_modules', 'vendor',
+  "fixtures",
+  "__fixtures__",
+  "testdata",
+  "node_modules",
+  "vendor",
 ]);
 
 /**
@@ -107,12 +129,20 @@ const INVENTORY_EXCLUDED_SEGMENTS: ReadonlySet<string> = new Set([
  * rules: not under `fixtures`, `__fixtures__`, `testdata`, `node_modules` or `vendor`, and not matched by the
  * config's `docs.exclude`. (`examples` and `test` stay: they may hold real packages.)
  */
-export function inInventory(ctx: Pick<CheckContext, 'excludedPaths'>, path: string): boolean {
-  return !path.split('/').some((segment) => INVENTORY_EXCLUDED_SEGMENTS.has(segment)) && !ctx.excludedPaths?.(path);
+export function inInventory(
+  ctx: Pick<CheckContext, "excludedPaths">,
+  path: string,
+): boolean {
+  return (
+    !path
+      .split("/")
+      .some((segment) => INVENTORY_EXCLUDED_SEGMENTS.has(segment)) &&
+    !ctx.excludedPaths?.(path)
+  );
 }
 
 function isPackageJson(entry: SnapshotEntry): boolean {
-  return entry.kind === 'file' && posix.basename(entry.path) === 'package.json';
+  return entry.kind === "file" && posix.basename(entry.path) === "package.json";
 }
 
 interface Side {
@@ -125,12 +155,14 @@ async function readSide(
   files: readonly SnapshotEntry[],
   keep: (path: string) => boolean,
 ): Promise<Side> {
-  const paths = files.filter((e) => isPackageJson(e) && keep(e.path)).map((e) => e.path);
+  const paths = files
+    .filter((e) => isPackageJson(e) && keep(e.path))
+    .map((e) => e.path);
   const contents = await snapshot.readFiles(paths);
   const side: Side = { parsed: new Map(), invalid: new Map() };
   for (const path of paths) {
-    const result = parsePackageJson(path, contents.get(path) ?? '');
-    if ('error' in result) side.invalid.set(path, result.error);
+    const result = parsePackageJson(path, contents.get(path) ?? "");
+    if ("error" in result) side.invalid.set(path, result.error);
     else side.parsed.set(path, result);
   }
   return side;
@@ -156,12 +188,21 @@ export function loadPackages(ctx: CheckContext): Promise<Packages> {
       const invalid = new Set([...base.invalid.keys(), ...head.invalid.keys()]);
       // Only a package.json the diff touched is worth a warning; scan mode has no diff (base is head): all count.
       const { added, modified, renamed } = ctx.changes;
-      const touched = new Set([...added, ...modified, ...renamed.map((r) => r.to)]);
+      const touched = new Set([
+        ...added,
+        ...modified,
+        ...renamed.map((r) => r.to),
+      ]);
       for (const [path, reason] of [...base.invalid, ...head.invalid]) {
         if (ctx.base !== ctx.head && !touched.has(path)) continue;
-        ctx.warn(`${path}: invalid package.json (${reason}); its scripts and bins are ignored`);
+        ctx.warn(
+          `${path}: invalid package.json (${reason}); its scripts and bins are ignored`,
+        );
       }
-      const usable = (side: Side) => packageSet([...side.parsed.values()].filter((p) => !invalid.has(p.path)));
+      const usable = (side: Side) =>
+        packageSet(
+          [...side.parsed.values()].filter((p) => !invalid.has(p.path)),
+        );
       return { base: usable(base), head: usable(head) };
     })();
     cache.set(ctx, loaded);
@@ -173,9 +214,14 @@ export function loadPackages(ctx: CheckContext): Promise<Packages> {
  * The repo-relative directory a reference's `cwd` (relative to the doc's directory) points to; `''` is the
  * repo root. `undefined` when it cannot be placed: absolute, `~`, `$VAR`, or outside the repository.
  */
-export function resolveCwdDir(docPath: string, cwd: string): string | undefined {
+export function resolveCwdDir(
+  docPath: string,
+  cwd: string,
+): string | undefined {
   if (/^[/~$]/.test(cwd)) return undefined;
-  const dir = posix.normalize(posix.join(posix.dirname(docPath), cwd)).replace(/\/+$/, '');
-  if (dir === '..' || dir.startsWith('../')) return undefined;
-  return dir === '.' ? '' : dir;
+  const dir = posix
+    .normalize(posix.join(posix.dirname(docPath), cwd))
+    .replace(/\/+$/, "");
+  if (dir === ".." || dir.startsWith("../")) return undefined;
+  return dir === "." ? "" : dir;
 }

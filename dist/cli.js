@@ -22712,7 +22712,16 @@ var WRAPPERS = /* @__PURE__ */ new Set([
   "export",
   "readonly"
 ]);
-var SUDO_VALUE_FLAGS = /* @__PURE__ */ new Set(["-u", "-g", "-h", "-p", "-C", "-r", "-t", "-U"]);
+var SUDO_VALUE_FLAGS = /* @__PURE__ */ new Set([
+  "-u",
+  "-g",
+  "-h",
+  "-p",
+  "-C",
+  "-r",
+  "-t",
+  "-U"
+]);
 var NPM_IMPLICIT_SCRIPTS = /* @__PURE__ */ new Map([
   ["test", "test"],
   ["t", "test"],
@@ -22857,7 +22866,12 @@ var PM_WORKSPACE_FLAGS = {
   yarn: /* @__PURE__ */ new Set(),
   bun: /* @__PURE__ */ new Set(["--filter", "-F"])
 };
-var ALL_WORKSPACES_FLAGS = /* @__PURE__ */ new Set(["-r", "--recursive", "--workspaces", "-ws"]);
+var ALL_WORKSPACES_FLAGS = /* @__PURE__ */ new Set([
+  "-r",
+  "--recursive",
+  "--workspaces",
+  "-ws"
+]);
 var PM_DIR_FLAGS = {
   npm: /* @__PURE__ */ new Set(["--prefix", "-C"]),
   pnpm: /* @__PURE__ */ new Set(["-C", "--dir"]),
@@ -22954,7 +22968,12 @@ function lex(text5) {
     const end = Math.min(j, n);
     tokens.push({
       type: "word",
-      word: { value: value2, start: quotedStart ? rawStart + 1 : rawStart, rawStart, raw: text5.slice(rawStart, end) }
+      word: {
+        value: value2,
+        start: quotedStart ? rawStart + 1 : rawStart,
+        rawStart,
+        raw: text5.slice(rawStart, end)
+      }
     });
     i = end;
   }
@@ -22971,7 +22990,9 @@ function joinCwd(base, dir) {
   if (/^[/~$`]/.test(trimmed)) return trimmed;
   if (/[$`]/.test(trimmed)) return `$${trimmed}`;
   if (base !== void 0 && /^[/~$`]/.test(base)) return base;
-  const joined = normalizePosix(base === void 0 ? trimmed : `${base}/${trimmed}`);
+  const joined = normalizePosix(
+    base === void 0 ? trimmed : `${base}/${trimmed}`
+  );
   return joined === "." ? void 0 : joined;
 }
 function stripCwd(dir) {
@@ -22988,7 +23009,8 @@ function dollarHits(text5, skip, from = 0, inline = false) {
   const hits = [];
   for (const match of text5.matchAll(DOLLAR_VAR)) {
     const name = match[1] ?? match[2];
-    if (name === void 0 || match.index < from || !isUsedEnvName(name)) continue;
+    if (name === void 0 || match.index < from || !isUsedEnvName(name))
+      continue;
     if (skip.some(([a, b]) => match.index >= a && match.index < b)) continue;
     const shadow = inline && name !== name.toUpperCase();
     hits.push({ kind: "env", normalized: name, offset: match.index, shadow });
@@ -23055,7 +23077,15 @@ function packageManagerHits(manager, words, state) {
   if (allWorkspaces) context.allWorkspaces = true;
   const cwd = dir !== void 0 ? joinCwd(state.cwd, dir) : state.cwd;
   if (cwd !== void 0) context.cwd = cwd;
-  return [{ kind: "npm-script", normalized: script.name, offset: script.start, shadow: false, context }];
+  return [
+    {
+      kind: "npm-script",
+      normalized: script.name,
+      offset: script.start,
+      shadow: false,
+      context
+    }
+  ];
 }
 var RUN_SUBCOMMANDS = {
   npm: /* @__PURE__ */ new Set(["run", "run-script", "rum", "urun"]),
@@ -23078,7 +23108,8 @@ function pickScript(manager, positionals) {
     word = sub;
     name = sub.value;
   }
-  if (!word || name === void 0 || !SCRIPT_NAME.test(name) || SCRIPT_FILE.test(name)) return void 0;
+  if (!word || name === void 0 || !SCRIPT_NAME.test(name) || SCRIPT_FILE.test(name))
+    return void 0;
   return { name, start: word.start };
 }
 function makeHits(words, state) {
@@ -23105,14 +23136,24 @@ function makeHits(words, state) {
   }
   const cwd = dir !== void 0 ? joinCwd(state.cwd, dir) : state.cwd;
   return targets.map((word) => {
-    const hit = { kind: "make-target", normalized: word.value, offset: word.start, shadow: false };
+    const hit = {
+      kind: "make-target",
+      normalized: word.value,
+      offset: word.start,
+      shadow: false
+    };
     if (cwd !== void 0) hit.context = { cwd };
     return hit;
   });
 }
 function pathHit(word) {
   const shape = pathFromCode(word.value);
-  return shape ? { kind: "path", normalized: shape.normalized, offset: word.start, shadow: true } : void 0;
+  return shape ? {
+    kind: "path",
+    normalized: shape.normalized,
+    offset: word.start,
+    shadow: true
+  } : void 0;
 }
 function applyCd(words, state) {
   const args = words.filter((w) => w.value === "-" || !w.value.startsWith("-"));
@@ -23131,7 +23172,17 @@ function applyClone(args, state) {
   const target = dir ?? url.replace(/\/+$/, "").split(/[/:]/).pop()?.replace(/\.git$/, "");
   if (target) state.cloned = stripCwd(target);
 }
-var LEADING_KEYWORDS = /* @__PURE__ */ new Set(["if", "then", "else", "elif", "do", "while", "until", "!", "{"]);
+var LEADING_KEYWORDS = /* @__PURE__ */ new Set([
+  "if",
+  "then",
+  "else",
+  "elif",
+  "do",
+  "while",
+  "until",
+  "!",
+  "{"
+]);
 function segmentHits(words, state, inline) {
   const hits = [];
   let i = 0;
@@ -23140,7 +23191,13 @@ function segmentHits(words, state, inline) {
     const assignment = ASSIGNMENT.exec(word.raw);
     if (assignment) {
       const name2 = assignment[1];
-      if (isAssignedEnvName(name2)) hits.push({ kind: "env", normalized: name2, offset: word.rawStart, shadow: false });
+      if (isAssignedEnvName(name2))
+        hits.push({
+          kind: "env",
+          normalized: name2,
+          offset: word.rawStart,
+          shadow: false
+        });
       i++;
     } else if (LEADING_KEYWORDS.has(word.value)) {
       i++;
@@ -23166,16 +23223,27 @@ function segmentHits(words, state, inline) {
   if (name === "npm" || name === "pnpm" || name === "yarn" || name === "bun") {
     return [...hits, ...packageManagerHits(name, args, state)];
   }
-  if (name === "make" || name === "gmake") return [...hits, ...makeHits(args, state)];
+  if (name === "make" || name === "gmake")
+    return [...hits, ...makeHits(args, state)];
   if (/^(?:\.{1,2})?\//.test(name)) {
     const own5 = pathHit(first);
     if (own5) hits.push(own5);
   } else if (COMMAND_NAME.test(name) && !SHELL_COMMAND_EXCLUDE.has(name)) {
     if (!inline) {
-      hits.push({ kind: "command", normalized: name, offset: first.start, shadow: false });
+      hits.push({
+        kind: "command",
+        normalized: name,
+        offset: first.start,
+        shadow: false
+      });
     } else if (args.length > 0) {
       const flagged = args[0].value.startsWith("-");
-      hits.push({ kind: "command", normalized: name, offset: first.start, shadow: !flagged });
+      hits.push({
+        kind: "command",
+        normalized: name,
+        offset: first.start,
+        shadow: !flagged
+      });
     }
   }
   for (const arg of args) {
@@ -23193,7 +23261,9 @@ function scanShellLine(text5, state, options) {
     let segment = [];
     const cwdStack = [];
     const flush = () => {
-      hits.push(...segmentHits(dropRedirects(segment).words, state, options.inline));
+      hits.push(
+        ...segmentHits(dropRedirects(segment).words, state, options.inline)
+      );
       segment = [];
     };
     for (const token of tokens) {
@@ -23203,7 +23273,8 @@ function scanShellLine(text5, state, options) {
       }
       flush();
       if (token.op === "(") cwdStack.push(state.cwd);
-      else if (token.op === ")" && cwdStack.length > 0) state.cwd = cwdStack.pop();
+      else if (token.op === ")" && cwdStack.length > 0)
+        state.cwd = cwdStack.pop();
     }
     flush();
   }
@@ -23212,7 +23283,8 @@ function scanShellLine(text5, state, options) {
 function continuation(text5) {
   const trimmed = text5.trimEnd();
   let backslashes = 0;
-  while (backslashes < trimmed.length && trimmed[trimmed.length - 1 - backslashes] === "\\") backslashes++;
+  while (backslashes < trimmed.length && trimmed[trimmed.length - 1 - backslashes] === "\\")
+    backslashes++;
   const body = backslashes % 2 === 1 ? trimmed.slice(0, -1).trimEnd() : trimmed;
   const endsWithOperator = /(?:&&|\|\||\|)$/.test(body);
   if (endsWithOperator) return "start";
@@ -23570,7 +23642,8 @@ function parseConfig(text5, source = CONFIG_PATH) {
     return fail(`invalid YAML: ${firstLine.replace(/:$/, "")}`);
   }
   const raw = doc.toJS();
-  if (raw === null || raw === void 0) return fail("version is required (must be 1)");
+  if (raw === null || raw === void 0)
+    return fail("version is required (must be 1)");
   if (!isMapping(raw)) return fail("must be a mapping");
   const checkKeys = (map3, allowed, path2) => {
     for (const key of Object.keys(map3)) {
@@ -23582,8 +23655,10 @@ function parseConfig(text5, source = CONFIG_PATH) {
   };
   const mappingAt = (value2, path2) => isMapping(value2) ? value2 : fail(`${path2} must be a mapping`);
   const limited = (glob, path2) => {
-    if (glob.length > MAX_GLOB_LENGTH) fail(`${path2} is longer than ${MAX_GLOB_LENGTH} characters`);
-    if ((glob.match(/[*?]/g) ?? []).length > MAX_GLOB_WILDCARDS) fail(`${path2} has more than ${MAX_GLOB_WILDCARDS} wildcards (* or ?)`);
+    if (glob.length > MAX_GLOB_LENGTH)
+      fail(`${path2} is longer than ${MAX_GLOB_LENGTH} characters`);
+    if ((glob.match(/[*?]/g) ?? []).length > MAX_GLOB_WILDCARDS)
+      fail(`${path2} has more than ${MAX_GLOB_WILDCARDS} wildcards (* or ?)`);
     return glob;
   };
   const globsAt = (value2, path2) => {
@@ -23594,13 +23669,16 @@ function parseConfig(text5, source = CONFIG_PATH) {
   };
   checkKeys(raw, ["version", "docs", "checks", "ignore", "failOn"], "");
   if (!("version" in raw)) fail("version is required (must be 1)");
-  if (raw.version !== 1) fail(`version must be 1, got ${JSON.stringify(raw.version)}`);
+  if (raw.version !== 1)
+    fail(`version must be 1, got ${JSON.stringify(raw.version)}`);
   const config = defaultConfig();
   if ("docs" in raw) {
     const docs = mappingAt(raw.docs, "docs");
     checkKeys(docs, ["include", "exclude"], "docs");
-    if ("include" in docs) config.docs.include = globsAt(docs.include, "docs.include");
-    if ("exclude" in docs) config.docs.exclude = globsAt(docs.exclude, "docs.exclude");
+    if ("include" in docs)
+      config.docs.include = globsAt(docs.include, "docs.include");
+    if ("exclude" in docs)
+      config.docs.exclude = globsAt(docs.exclude, "docs.exclude");
   }
   if ("checks" in raw) {
     const checks = mappingAt(raw.checks, "checks");
@@ -23618,17 +23696,20 @@ function parseConfig(text5, source = CONFIG_PATH) {
       const path2 = `ignore[${i}]`;
       const entry = mappingAt(item, path2);
       checkKeys(entry, ["kind", "name", "file"], path2);
-      if (Object.keys(entry).length === 0) fail(`${path2} needs at least one of kind, name, file`);
+      if (Object.keys(entry).length === 0)
+        fail(`${path2} needs at least one of kind, name, file`);
       const out = {};
       if ("kind" in entry) {
         const kind = entry.kind;
-        if (typeof kind !== "string" || !RULE_IDS.includes(kind)) fail(`${path2}.kind must be one of: ${RULE_IDS.join(", ")}`);
+        if (typeof kind !== "string" || !RULE_IDS.includes(kind))
+          fail(`${path2}.kind must be one of: ${RULE_IDS.join(", ")}`);
         out.kind = kind;
       }
       for (const key of ["name", "file"]) {
         if (!(key in entry)) continue;
         const value2 = entry[key];
-        if (typeof value2 !== "string" || value2 === "") fail(`${path2}.${key} must be a non-empty string`);
+        if (typeof value2 !== "string" || value2 === "")
+          fail(`${path2}.${key} must be a non-empty string`);
         out[key] = limited(value2, `${path2}.${key}`);
       }
       return out;
@@ -23636,7 +23717,8 @@ function parseConfig(text5, source = CONFIG_PATH) {
   }
   if ("failOn" in raw) {
     const failOn = raw.failOn;
-    if (typeof failOn !== "string" || !FAIL_ON.includes(failOn)) fail(`failOn must be one of: ${FAIL_ON.join(", ")}`);
+    if (typeof failOn !== "string" || !FAIL_ON.includes(failOn))
+      fail(`failOn must be one of: ${FAIL_ON.join(", ")}`);
     config.failOn = failOn;
   }
   return config;
@@ -23646,7 +23728,10 @@ async function loadConfig(snapshot) {
   return text5 === void 0 ? defaultConfig() : parseConfig(text5);
 }
 var globOptions = { dot: true };
-var defaultExcluded = (0, import_picomatch.default)([...DEFAULT_EXCLUDES], { ...globOptions, nocase: true });
+var defaultExcluded = (0, import_picomatch.default)([...DEFAULT_EXCLUDES], {
+  ...globOptions,
+  nocase: true
+});
 var matchers = /* @__PURE__ */ new WeakMap();
 function matchersFor(config) {
   let found = matchers.get(config);
@@ -23698,7 +23783,10 @@ var GitError = class extends Error {
   /** `undefined` when git did not run to completion (e.g. killed by a signal). */
   exitCode;
   constructor(message, details = {}) {
-    super(message, details.cause === void 0 ? void 0 : { cause: details.cause });
+    super(
+      message,
+      details.cause === void 0 ? void 0 : { cause: details.cause }
+    );
     this.name = "GitError";
     this.args = details.args ?? [];
     this.stderr = details.stderr ?? "";
@@ -23740,7 +23828,9 @@ function suppressedLines(lines) {
   let inBlock = false;
   let nextLine = false;
   lines.forEach((line, index2) => {
-    const directives = [...line.matchAll(DIRECTIVE)].map((m) => m[1].toLowerCase());
+    const directives = [...line.matchAll(DIRECTIVE)].map(
+      (m) => m[1].toLowerCase()
+    );
     const number = index2 + 1;
     if (inBlock && !directives.includes("end")) suppressed.add(number);
     if (nextLine && line.trim() !== "") {
@@ -23778,6 +23868,11 @@ function hasHistoricalContext(line) {
 }
 
 // src/core/collect.ts
+function mentionsAny(content3, needles) {
+  if (needles.length === 0) return false;
+  const text5 = content3.toLowerCase().replaceAll("\\", "");
+  return needles.some((needle) => text5.includes(needle));
+}
 var MAX_DOC_CHARS = 1e6;
 var MAX_NESTING_PREFIX = 200;
 var NESTING_PREFIX = new RegExp(`^[ \\t>]{${MAX_NESTING_PREFIX + 1},}`, "m");
@@ -23808,22 +23903,38 @@ async function collectFindings(head, headFiles, options) {
   const { rules, evaluate, repo, config } = options;
   const docFilter = options.docFilter ?? (config ? (path2) => isCheckedDoc(path2, config) : isIndexedDoc);
   const docPaths = headFiles.filter((e) => e.kind === "file" && docFilter(e.path)).map((e) => e.path);
+  if (options.needles?.length === 0) return [];
   const contents = await head.readFiles(docPaths);
   const findings = /* @__PURE__ */ new Map();
   for (const path2 of docPaths) {
     const content3 = contents.get(path2);
     if (content3 === void 0) continue;
-    const refs = indexSafely(path2, content3, repo, options.warn ?? (() => void 0));
+    if (options.needles !== void 0 && !mentionsAny(content3, options.needles))
+      continue;
+    const refs = indexSafely(
+      path2,
+      content3,
+      repo,
+      options.warn ?? (() => void 0)
+    );
     if (refs === void 0) continue;
     const suppressed = suppressedLines(splitLines(content3));
     for (const ref of refs) {
-      if (ref.shadow || suppressed.has(ref.line) || hasHistoricalContext(ref.contextLine)) continue;
+      if (ref.shadow || suppressed.has(ref.line) || hasHistoricalContext(ref.contextLine))
+        continue;
       for (const rule of rules) {
         if (!rule.kinds.includes(ref.kind)) continue;
         const drift = evaluate(rule, ref, { path: path2 });
         if (drift === void 0) continue;
-        if (drift.suggestion !== void 0 && ref.contextLine.includes(drift.suggestion)) continue;
-        const key = JSON.stringify([rule.id, path2, ref.line, ref.col, drift.fact]);
+        if (drift.suggestion !== void 0 && ref.contextLine.includes(drift.suggestion))
+          continue;
+        const key = JSON.stringify([
+          rule.id,
+          path2,
+          ref.line,
+          ref.col,
+          drift.fact
+        ]);
         if (findings.has(key)) continue;
         const finding = {
           ruleId: rule.id,
@@ -23836,7 +23947,8 @@ async function collectFindings(head, headFiles, options) {
           ...drift.suggestion === void 0 ? {} : { suggestion: drift.suggestion },
           fingerprint: fingerprint(rule.id, drift.fact, path2, ref.contextLine)
         };
-        if (config?.ignore.some((entry) => matchesIgnore(entry, finding))) continue;
+        if (config?.ignore.some((entry) => matchesIgnore(entry, finding)))
+          continue;
         findings.set(key, finding);
       }
     }
@@ -23848,15 +23960,29 @@ async function collectFindings(head, headFiles, options) {
 function touchesConfig(changes) {
   return changes.added.includes(CONFIG_PATH) || changes.modified.includes(CONFIG_PATH) || changes.renamed.some((r) => r.to === CONFIG_PATH);
 }
+function needlesOf(rules) {
+  const all2 = /* @__PURE__ */ new Set();
+  for (const rule of rules) {
+    const needles = rule.needles?.();
+    if (needles === void 0) return void 0;
+    for (const needle of needles) all2.add(needle);
+  }
+  return [...all2];
+}
 function disabledRuleIds(config) {
   const keys = Object.keys(CHECK_RULE_IDS);
-  return new Set(keys.filter((key) => !config.checks[key]).map((key) => CHECK_RULE_IDS[key]));
+  return new Set(
+    keys.filter((key) => !config.checks[key]).map((key) => CHECK_RULE_IDS[key])
+  );
 }
 async function runCheck(base, head, changes, options) {
   const { repo, config, hunks = [] } = options;
   const disabled = config ? disabledRuleIds(config) : /* @__PURE__ */ new Set();
   const rules = options.rules.filter((rule) => !disabled.has(rule.id));
-  const [baseFiles, headFiles] = await Promise.all([base.listFiles(), head.listFiles()]);
+  const [baseFiles, headFiles] = await Promise.all([
+    base.listFiles(),
+    head.listFiles()
+  ]);
   const warnings = [...changes.warnings];
   const ctx = {
     base,
@@ -23871,13 +23997,15 @@ async function runCheck(base, head, changes, options) {
     }
   };
   for (const rule of rules) await rule.prepare(ctx);
+  const needles = needlesOf(rules);
   const findings = await collectFindings(head, headFiles, {
     rules,
     evaluate: (rule, ref, doc) => rule.check(ref, doc),
     ...repo ? { repo } : {},
     ...config ? { config } : {},
     ...options.docFilter ? { docFilter: options.docFilter } : {},
-    warn: ctx.warn
+    warn: ctx.warn,
+    ...needles ? { needles } : {}
   });
   return {
     schemaVersion: FINDING_SCHEMA_VERSION,
@@ -23905,7 +24033,8 @@ function isRecord(value2) {
 function stringEntries(value2) {
   const result = /* @__PURE__ */ new Map();
   if (!isRecord(value2)) return result;
-  for (const [key, body] of Object.entries(value2)) if (typeof body === "string") result.set(key, body);
+  for (const [key, body] of Object.entries(value2))
+    if (typeof body === "string") result.set(key, body);
   return result;
 }
 function parsePackageJson(path2, text5) {
@@ -23921,10 +24050,17 @@ function parsePackageJson(path2, text5) {
   if (typeof data.bin === "string") {
     if (name !== void 0) bins.set(name.replace(/^@[^/]+\//, ""), data.bin);
   } else {
-    for (const [binName, file] of stringEntries(data.bin)) bins.set(binName, file);
+    for (const [binName, file] of stringEntries(data.bin))
+      bins.set(binName, file);
   }
   const dir = posix.dirname(path2);
-  return { path: path2, dir: dir === "." ? "" : dir, name, scripts: stringEntries(data.scripts), bins };
+  return {
+    path: path2,
+    dir: dir === "." ? "" : dir,
+    name,
+    scripts: stringEntries(data.scripts),
+    bins
+  };
 }
 function normalizeWorkspace(value2) {
   return posix.normalize(value2).replace(/^(?:\.\/)+/, "").replace(/\/+$/, "");
@@ -23947,8 +24083,11 @@ function packageSet(packages) {
     },
     byWorkspace(value2) {
       const wanted = normalizeWorkspace(value2);
-      if (wanted === "" || wanted === "." || /[*?{}]/.test(wanted)) return void 0;
-      const byName = packages.filter((p) => p.name === value2 || p.name === wanted);
+      if (wanted === "" || wanted === "." || /[*?{}]/.test(wanted))
+        return void 0;
+      const byName = packages.filter(
+        (p) => p.name === value2 || p.name === wanted
+      );
       if (byName.length === 1) return byName[0];
       const exact = byDir.get(wanted);
       if (exact !== void 0) return exact;
@@ -23993,12 +24132,20 @@ function loadPackages(ctx) {
       ]);
       const invalid = /* @__PURE__ */ new Set([...base.invalid.keys(), ...head.invalid.keys()]);
       const { added, modified, renamed } = ctx.changes;
-      const touched = /* @__PURE__ */ new Set([...added, ...modified, ...renamed.map((r) => r.to)]);
+      const touched = /* @__PURE__ */ new Set([
+        ...added,
+        ...modified,
+        ...renamed.map((r) => r.to)
+      ]);
       for (const [path2, reason] of [...base.invalid, ...head.invalid]) {
         if (ctx.base !== ctx.head && !touched.has(path2)) continue;
-        ctx.warn(`${path2}: invalid package.json (${reason}); its scripts and bins are ignored`);
+        ctx.warn(
+          `${path2}: invalid package.json (${reason}); its scripts and bins are ignored`
+        );
       }
-      const usable = (side) => packageSet([...side.parsed.values()].filter((p) => !invalid.has(p.path)));
+      const usable = (side) => packageSet(
+        [...side.parsed.values()].filter((p) => !invalid.has(p.path))
+      );
       return { base: usable(base), head: usable(head) };
     })();
     cache.set(ctx, loaded);
@@ -24035,19 +24182,33 @@ function binRule() {
     kinds: ["command"],
     async prepare(ctx) {
       const packages = await loadPackages(ctx);
-      state = { packages, base: binNames(packages.base), head: binNames(packages.head) };
+      state = {
+        packages,
+        base: binNames(packages.base),
+        head: binNames(packages.head)
+      };
     },
     check(ref) {
-      if (state === void 0) throw new Error("binRule: prepare() must run before check()");
+      if (state === void 0)
+        throw new Error("binRule: prepare() must run before check()");
       const name = ref.normalized;
       if (!state.base.has(name) || state.head.has(name)) return void 0;
-      const drift = { fact: `bin:${name}`, message: `bin ${codeName(name)} was removed in this change` };
+      const drift = {
+        fact: `bin:${name}`,
+        message: `bin ${codeName(name)} was removed in this change`
+      };
       const newName = renamedTo(state.packages, name);
       if (newName !== void 0) {
         drift.message = `bin ${codeName(name)} was renamed to ${codeName(newName)} in this change`;
         drift.suggestion = newName;
       }
       return drift;
+    },
+    needles() {
+      if (state === void 0)
+        throw new Error("binRule: prepare() must run before needles()");
+      const { base, head } = state;
+      return [...base].filter((name) => !head.has(name)).map((name) => name.toLowerCase());
     }
   };
 }
@@ -24185,7 +24346,8 @@ function envRule() {
       confirmed = result;
     },
     check(ref) {
-      if (confirmed === void 0) throw new Error("envRule: prepare() must run before check()");
+      if (confirmed === void 0)
+        throw new Error("envRule: prepare() must run before check()");
       if (!confirmed.has(ref.normalized)) return void 0;
       const renamedTo4 = confirmed.get(ref.normalized);
       return {
@@ -24193,6 +24355,11 @@ function envRule() {
         message: describeChange(ref.normalized, renamedTo4),
         ...renamedTo4 === void 0 ? {} : { suggestion: renamedTo4 }
       };
+    },
+    needles() {
+      if (confirmed === void 0)
+        throw new Error("envRule: prepare() must run before needles()");
+      return [...confirmed.keys()].map((name) => name.toLowerCase());
     }
   };
 }
@@ -24322,11 +24489,22 @@ function definesDynamically(text5) {
   }
   return false;
 }
-var NOT_MAKEFILE_EXTENSIONS = /* @__PURE__ */ new Set(["md", "mdx", "txt", "rst", "bak", "orig", "patch", "diff", "swp"]);
+var NOT_MAKEFILE_EXTENSIONS = /* @__PURE__ */ new Set([
+  "md",
+  "mdx",
+  "txt",
+  "rst",
+  "bak",
+  "orig",
+  "patch",
+  "diff",
+  "swp"
+]);
 function isMakefile(entry) {
   if (entry.kind !== "file") return false;
   const base = posix2.basename(entry.path);
-  if (base === "Makefile" || base === "GNUmakefile" || base === "makefile" || base.endsWith(".mk")) return true;
+  if (base === "Makefile" || base === "GNUmakefile" || base === "makefile" || base.endsWith(".mk"))
+    return true;
   const match = /^(?:GNUmakefile|[Mm]akefile)\.(.+)$/.exec(base);
   return match !== null && !NOT_MAKEFILE_EXTENSIONS.has(match[1].toLowerCase());
 }
@@ -24340,8 +24518,12 @@ function resolveInclude(paths, file, name) {
   return void 0;
 }
 async function readMakefiles(snapshot, files, skip) {
-  const known = new Set(files.filter((e) => e.kind === "file").map((e) => e.path));
-  const seen = new Set(files.filter((e) => isMakefile(e) && !skip(e.path)).map((e) => e.path));
+  const known = new Set(
+    files.filter((e) => e.kind === "file").map((e) => e.path)
+  );
+  const seen = new Set(
+    files.filter((e) => isMakefile(e) && !skip(e.path)).map((e) => e.path)
+  );
   let queue = [...seen];
   const result = [];
   while (queue.length > 0) {
@@ -24366,14 +24548,18 @@ async function readMakefiles(snapshot, files, skip) {
     }
     queue = next;
   }
-  return result.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  return result.sort(
+    (a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0
+  );
 }
 function inScope(files, dir) {
   return dir === "" ? [...files] : files.filter((f) => f.path.startsWith(`${dir}/`));
 }
 function hasUnreadInclude(file, makefiles) {
   const read = new Set(makefiles.map((m) => m.path));
-  return file.includes.some((name) => resolveInclude(read, file.path, name) === void 0);
+  return file.includes.some(
+    (name) => resolveInclude(read, file.path, name) === void 0
+  );
 }
 function isUnsure(scope, makefiles) {
   return scope.some((f) => f.dynamic || hasUnreadInclude(f, makefiles));
@@ -24381,14 +24567,21 @@ function isUnsure(scope, makefiles) {
 function buildableFile(paths, dir, name) {
   const prefix = dir === "" ? name : `${dir}/${name}`;
   if (paths.has(prefix)) return true;
-  for (const path2 of paths) if (path2.startsWith(`${prefix}.`) && !path2.slice(prefix.length + 1).includes("/")) return true;
+  for (const path2 of paths)
+    if (path2.startsWith(`${prefix}.`) && !path2.slice(prefix.length + 1).includes("/"))
+      return true;
   return false;
 }
 function renamedTo2(before, after, name) {
   if (after === void 0) return void 0;
-  const removed = [...before.targets.keys()].filter((key) => !after.targets.has(key));
-  const added = [...after.targets.keys()].filter((key) => !before.targets.has(key));
-  if (removed.length !== 1 || removed[0] !== name || added.length !== 1) return void 0;
+  const removed = [...before.targets.keys()].filter(
+    (key) => !after.targets.has(key)
+  );
+  const added = [...after.targets.keys()].filter(
+    (key) => !before.targets.has(key)
+  );
+  if (removed.length !== 1 || removed[0] !== name || added.length !== 1)
+    return void 0;
   const [newName] = added;
   const recipe = before.targets.get(name) ?? "";
   return recipe !== "" && recipe === after.targets.get(newName) ? newName : void 0;
@@ -24404,10 +24597,15 @@ function makeTargetRule() {
         readMakefiles(ctx.base, ctx.baseFiles, skip),
         readMakefiles(ctx.head, ctx.headFiles, skip)
       ]);
-      state = { base, head, headPaths: new Set(ctx.headFiles.map((e) => e.path)) };
+      state = {
+        base,
+        head,
+        headPaths: new Set(ctx.headFiles.map((e) => e.path))
+      };
     },
     check(ref, doc) {
-      if (state === void 0) throw new Error("makeTargetRule: prepare() must run before check()");
+      if (state === void 0)
+        throw new Error("makeTargetRule: prepare() must run before check()");
       const cwd = ref.context?.cwd;
       const dir = cwd === void 0 ? "" : resolveCwdDir(doc.path, cwd);
       if (dir === void 0) return void 0;
@@ -24417,16 +24615,36 @@ function makeTargetRule() {
       const headScope = inScope(state.head, dir);
       if (headScope.some((f) => f.targets.has(name))) return void 0;
       if (isUnsure(headScope, state.head)) return void 0;
-      const drift = { fact: `make:${name}`, message: `Make target ${codeName(name)} was removed in this change` };
-      const newName = renamedTo2(defined, state.head.find((f) => f.path === defined.path), name);
+      const drift = {
+        fact: `make:${name}`,
+        message: `Make target ${codeName(name)} was removed in this change`
+      };
+      const newName = renamedTo2(
+        defined,
+        state.head.find((f) => f.path === defined.path),
+        name
+      );
       if (newName !== void 0) {
         drift.message = `Make target ${codeName(name)} was renamed to ${codeName(newName)} in this change`;
         drift.suggestion = newName;
       }
       return drift;
     },
+    needles() {
+      if (state === void 0)
+        throw new Error("makeTargetRule: prepare() must run before needles()");
+      const result = /* @__PURE__ */ new Set();
+      for (const before of state.base) {
+        const after = state.head.find((f) => f.path === before.path);
+        for (const name of before.targets.keys()) {
+          if (!after?.targets.has(name)) result.add(name.toLowerCase());
+        }
+      }
+      return [...result];
+    },
     scan(ref, doc) {
-      if (state === void 0) throw new Error("makeTargetRule: prepare() must run before scan()");
+      if (state === void 0)
+        throw new Error("makeTargetRule: prepare() must run before scan()");
       const cwd = ref.context?.cwd;
       const dir = cwd === void 0 ? "" : resolveCwdDir(doc.path, cwd);
       if (dir === void 0) return void 0;
@@ -24434,10 +24652,14 @@ function makeTargetRule() {
       if (/[./]/.test(name)) return void 0;
       const { head: makefiles, headPaths } = state;
       const scope = inScope(makefiles, dir);
-      if (scope.length === 0 || scope.some((f) => f.targets.has(name))) return void 0;
+      if (scope.length === 0 || scope.some((f) => f.targets.has(name)))
+        return void 0;
       if (isUnsure(scope, makefiles)) return void 0;
       if (buildableFile(headPaths, dir, name)) return void 0;
-      return { fact: `make:${name}`, message: `Make target ${codeName(name)} does not exist at this commit` };
+      return {
+        fact: `make:${name}`,
+        message: `Make target ${codeName(name)} does not exist at this commit`
+      };
     }
   };
 }
@@ -24445,7 +24667,13 @@ function makeTargetRule() {
 // src/core/rules/path.ts
 var import_ignore = __toESM(require_ignore(), 1);
 import { posix as posix3 } from "node:path";
-var BUILD_DIRS = /* @__PURE__ */ new Set(["dist", "build", "out", ".next", "coverage"]);
+var BUILD_DIRS = /* @__PURE__ */ new Set([
+  "dist",
+  "build",
+  "out",
+  ".next",
+  "coverage"
+]);
 function inventoryOf(entries) {
   const files = /* @__PURE__ */ new Set();
   const dirs = /* @__PURE__ */ new Set();
@@ -24454,7 +24682,8 @@ function inventoryOf(entries) {
     files.add(path2);
     if (kind === "submodule") submodules.add(path2);
     const segments = path2.split("/");
-    for (let i = 1; i < segments.length; i++) dirs.add(segments.slice(0, i).join("/"));
+    for (let i = 1; i < segments.length; i++)
+      dirs.add(segments.slice(0, i).join("/"));
   }
   return { files, dirs, submodules };
 }
@@ -24469,7 +24698,8 @@ function exists(inv, path2) {
 }
 function clean(path2) {
   const normalized = posix3.normalize(path2).replace(/\/+$/, "");
-  if (normalized === "" || normalized === "." || normalized === ".." || normalized.startsWith("../")) return void 0;
+  if (normalized === "" || normalized === "." || normalized === ".." || normalized.startsWith("../"))
+    return void 0;
   return normalized;
 }
 function packageRoot(inv, docPath) {
@@ -24486,9 +24716,13 @@ function candidatesFor(inv, docPath, normalized) {
     origins.push({ origin: "", path: normalized.replace(/^\/+/, "") });
   } else {
     const docDir = posix3.dirname(docPath);
-    origins.push({ origin: docDir === "." ? "" : docDir, path: posix3.join(docDir, normalized) });
+    origins.push({
+      origin: docDir === "." ? "" : docDir,
+      path: posix3.join(docDir, normalized)
+    });
     const pkg = packageRoot(inv, docPath);
-    if (pkg !== void 0) origins.push({ origin: pkg, path: posix3.join(pkg, normalized) });
+    if (pkg !== void 0)
+      origins.push({ origin: pkg, path: posix3.join(pkg, normalized) });
     origins.push({ origin: "", path: normalized });
   }
   const seen = /* @__PURE__ */ new Set();
@@ -24513,9 +24747,18 @@ function movedTo(state, path2) {
   }
   return void 0;
 }
-var LINK_SOURCES = /* @__PURE__ */ new Set(["link", "image", "definition"]);
+var LINK_SOURCES = /* @__PURE__ */ new Set([
+  "link",
+  "image",
+  "definition"
+]);
 function encodeLinkPath(path2) {
-  return path2.split("/").map((segment) => encodeURIComponent(segment).replace(/[()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join("/");
+  return path2.split("/").map(
+    (segment) => encodeURIComponent(segment).replace(
+      /[()]/g,
+      (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+    )
+  ).join("/");
 }
 function rawDestination(ref) {
   const token = ref.contextLine.slice(ref.col - 1);
@@ -24530,7 +24773,9 @@ function suffixOf(ref, raw) {
   let rest = ref.contextLine.slice(ref.col - 1);
   while (rest.startsWith("./")) rest = rest.slice(2);
   if (!rest.startsWith(ref.normalized)) return "";
-  return /^(?::\d+(?::\d+)?)?(?:#[\w.:/-]*[\w/-])?/.exec(rest.slice(ref.normalized.length))?.[0] ?? "";
+  return /^(?::\d+(?::\d+)?)?(?:#[\w.:/-]*[\w/-])?/.exec(
+    rest.slice(ref.normalized.length)
+  )?.[0] ?? "";
 }
 function styled(ref, origin, newPath) {
   const token = ref.contextLine.slice(ref.col - 1);
@@ -24549,7 +24794,8 @@ function styled(ref, origin, newPath) {
   if (ref.normalized.endsWith("/") && !text5.endsWith("/")) text5 = `${text5}/`;
   if (isLink) {
     const path2 = raw?.replace(/[?#].*$/, "") ?? "";
-    if (/%[0-9A-Fa-f]{2}/.test(path2) || /[\s()#?%<>]/.test(text5)) text5 = encodeLinkPath(text5);
+    if (/%[0-9A-Fa-f]{2}/.test(path2) || /[\s()#?%<>]/.test(text5))
+      text5 = encodeLinkPath(text5);
   }
   return `${text5}${suffixOf(ref, raw)}`;
 }
@@ -24559,7 +24805,9 @@ async function loadGitignores(ctx) {
   return paths.map((path2) => ({
     dir: posix3.dirname(path2) === "." ? "" : posix3.dirname(path2),
     rules: (0, import_ignore.default)({ ignorecase: false }).add(contents.get(path2) ?? "")
-  })).sort((a, b) => a.dir.split("/").length - b.dir.split("/").length || (a.dir < b.dir ? -1 : 1));
+  })).sort(
+    (a, b) => a.dir.split("/").length - b.dir.split("/").length || (a.dir < b.dir ? -1 : 1)
+  );
 }
 function ignoreMatcher(gitignores) {
   return (path2, isDir) => {
@@ -24588,17 +24836,24 @@ function pathRule() {
         base: inventoryOf(ctx.baseFiles),
         head: inventoryOf(ctx.headFiles),
         renamed: new Map(changes.renamed.map((r) => [r.from, r.to])),
-        renamedDirs: [...changes.renamedDirs].sort((a, b) => b.from.length - a.from.length),
+        renamedDirs: [...changes.renamedDirs].sort(
+          (a, b) => b.from.length - a.from.length
+        ),
         isIgnoredInHead: ignoreMatcher(await loadGitignores(ctx))
       };
     },
     check(ref, doc) {
       const s = state;
-      if (s === void 0) throw new Error("pathRule: prepare() must run before check()");
-      const matched = candidatesFor(s.base, doc.path, ref.normalized).find((c) => exists(s.base, c.path));
+      if (s === void 0)
+        throw new Error("pathRule: prepare() must run before check()");
+      const matched = candidatesFor(s.base, doc.path, ref.normalized).find(
+        (c) => exists(s.base, c.path)
+      );
       if (matched === void 0) return void 0;
       if (LINK_SOURCES.has(ref.source) && !ref.normalized.startsWith("/")) {
-        const docRelative = clean(posix3.join(posix3.dirname(doc.path), ref.normalized));
+        const docRelative = clean(
+          posix3.join(posix3.dirname(doc.path), ref.normalized)
+        );
         if (matched.path !== docRelative) return void 0;
       }
       const inHead = [
@@ -24610,26 +24865,50 @@ function pathRule() {
         return void 0;
       }
       const target = movedTo(s, matched.path);
-      const drift = { fact: matched.path, message: describeChange2(matched.path, target) };
+      const drift = {
+        fact: matched.path,
+        message: describeChange2(matched.path, target)
+      };
       if (target !== void 0) {
         const suggestion = styled(ref, matched.origin, target);
         if (suggestion !== void 0) drift.suggestion = suggestion;
       }
       return drift;
     },
+    needles() {
+      const s = state;
+      if (s === void 0)
+        throw new Error("pathRule: prepare() must run before needles()");
+      const result = /* @__PURE__ */ new Set();
+      for (const path2 of [...s.base.files, ...s.base.dirs]) {
+        if (exists(s.head, path2)) continue;
+        const name = posix3.basename(path2).toLowerCase();
+        result.add(name);
+        result.add(encodeURIComponent(name).toLowerCase());
+        if (name.includes("&")) result.add(name.replaceAll("&", "&amp;"));
+      }
+      return [...result];
+    },
     scan(ref, doc) {
       const s = state;
-      if (s === void 0) throw new Error("pathRule: prepare() must run before scan()");
+      if (s === void 0)
+        throw new Error("pathRule: prepare() must run before scan()");
       const candidates = candidatesFor(s.head, doc.path, ref.normalized);
       const [first] = candidates;
-      if (first === void 0 || candidates.some((c) => exists(s.head, c.path))) return void 0;
+      if (first === void 0 || candidates.some((c) => exists(s.head, c.path)))
+        return void 0;
       const buildProduct = (path2) => underBuildDir(path2) || s.isIgnoredInHead(path2, false) || s.isIgnoredInHead(path2, true);
       if (candidates.some((c) => buildProduct(c.path))) return void 0;
       if (!/\.[A-Za-z0-9]+$/.test(first.path) && !ref.normalized.endsWith("/")) {
-        const hasParent = candidates.some((c) => posix3.dirname(c.path) === "." || exists(s.head, posix3.dirname(c.path)));
+        const hasParent = candidates.some(
+          (c) => posix3.dirname(c.path) === "." || exists(s.head, posix3.dirname(c.path))
+        );
         if (!hasParent) return void 0;
       }
-      return { fact: first.path, message: `${codeName(ref.normalized)} does not exist at this commit` };
+      return {
+        fact: first.path,
+        message: `${codeName(ref.normalized)} does not exist at this commit`
+      };
     }
   };
 }
@@ -24652,7 +24931,8 @@ function locatable(ref, docPath) {
 var EXPLICIT_RUN = /(?:^|[\s`'"(])(?:npm|pnpm)\s(?:\S+\s)*?(?:run|run-script)\s(?:\S+\s)*$/;
 function isExplicitRun(ref) {
   const manager = ref.context?.packageManager;
-  if (manager !== "npm" && manager !== "pnpm" || ref.contextLine.includes("--if-present")) return false;
+  if (manager !== "npm" && manager !== "pnpm" || ref.contextLine.includes("--if-present"))
+    return false;
   const open = ref.source === "inline-code" ? ref.contextLine.lastIndexOf("`", ref.col - 2) : -1;
   const before = ref.contextLine.slice(open + 1, ref.col - 1);
   const command = before.split(/&&|\|\||[;|]/).pop() ?? "";
@@ -24663,9 +24943,14 @@ function labelOf(pkg) {
 }
 function renamedTo3(before, after, name) {
   if (after === void 0) return void 0;
-  const removed = [...before.scripts.keys()].filter((key) => !after.scripts.has(key));
-  const added = [...after.scripts.keys()].filter((key) => !before.scripts.has(key));
-  if (removed.length !== 1 || removed[0] !== name || added.length !== 1) return void 0;
+  const removed = [...before.scripts.keys()].filter(
+    (key) => !after.scripts.has(key)
+  );
+  const added = [...after.scripts.keys()].filter(
+    (key) => !before.scripts.has(key)
+  );
+  if (removed.length !== 1 || removed[0] !== name || added.length !== 1)
+    return void 0;
   const [newName] = added;
   const body = before.scripts.get(name)?.trim();
   return body !== void 0 && body !== "" && body === after.scripts.get(newName)?.trim() ? newName : void 0;
@@ -24679,14 +24964,17 @@ function npmScriptRule() {
       packages = await loadPackages(ctx);
     },
     check(ref, doc) {
-      if (packages === void 0) throw new Error("npmScriptRule: prepare() must run before check()");
-      if (!locatable(ref, doc.path) || ref.context?.allWorkspaces) return void 0;
+      if (packages === void 0)
+        throw new Error("npmScriptRule: prepare() must run before check()");
+      if (!locatable(ref, doc.path) || ref.context?.allWorkspaces)
+        return void 0;
       const name = ref.normalized;
       const before = resolveIn(packages.base, ref, doc.path);
       if (before === void 0 || !before.scripts.has(name)) return void 0;
       const after = resolveIn(packages.head, ref, doc.path) ?? (ref.context?.workspace !== void 0 ? packages.head.at(before.dir) : void 0);
       if (after?.scripts.has(name)) return void 0;
-      if (after?.path !== before.path && packages.head.at(before.dir)?.scripts.has(name)) return void 0;
+      if (after?.path !== before.path && packages.head.at(before.dir)?.scripts.has(name))
+        return void 0;
       const drift = {
         fact: `${before.path}#${name}`,
         message: `npm script ${codeName(name)} (package ${codeName(labelOf(before))}) was removed in this change`
@@ -24698,9 +24986,26 @@ function npmScriptRule() {
       }
       return drift;
     },
+    needles() {
+      if (packages === void 0)
+        throw new Error("npmScriptRule: prepare() must run before needles()");
+      const result = /* @__PURE__ */ new Set();
+      for (const before of packages.base.packages) {
+        const after = packages.head.at(before.dir);
+        for (const name of before.scripts.keys()) {
+          if (after?.scripts.has(name)) continue;
+          result.add(name.toLowerCase());
+          for (const [alias, script] of NPM_IMPLICIT_SCRIPTS)
+            if (script === name) result.add(alias);
+        }
+      }
+      return [...result];
+    },
     scan(ref, doc) {
-      if (packages === void 0) throw new Error("npmScriptRule: prepare() must run before scan()");
-      if (!isExplicitRun(ref) || !locatable(ref, doc.path) || ref.context?.allWorkspaces) return void 0;
+      if (packages === void 0)
+        throw new Error("npmScriptRule: prepare() must run before scan()");
+      if (!isExplicitRun(ref) || !locatable(ref, doc.path) || ref.context?.allWorkspaces)
+        return void 0;
       const name = ref.normalized;
       const target = resolveIn(packages.head, ref, doc.path);
       if (target === void 0 || target.scripts.has(name)) return void 0;
@@ -24718,11 +25023,20 @@ function defaultRules() {
 }
 
 // src/core/scan.ts
-var NO_CHANGES = { renamed: [], renamedDirs: [], deleted: [], added: [], modified: [], warnings: [] };
+var NO_CHANGES = {
+  renamed: [],
+  renamedDirs: [],
+  deleted: [],
+  added: [],
+  modified: [],
+  warnings: []
+};
 async function scanSnapshot(head, options) {
   const { repo, config } = options;
   const disabled = config ? disabledRuleIds(config) : /* @__PURE__ */ new Set();
-  const rules = options.rules.filter((rule) => rule.scan !== void 0 && !disabled.has(rule.id));
+  const rules = options.rules.filter(
+    (rule) => rule.scan !== void 0 && !disabled.has(rule.id)
+  );
   const headFiles = await head.listFiles();
   const warnings = [];
   const ctx = {
@@ -24763,17 +25077,20 @@ function compareStrings2(a, b) {
 function ancestorDirs(path2) {
   const segments = path2.split("/");
   const dirs = [];
-  for (let i = 1; i < segments.length; i++) dirs.push(segments.slice(0, i).join("/"));
+  for (let i = 1; i < segments.length; i++)
+    dirs.push(segments.slice(0, i).join("/"));
   return dirs;
 }
 function deriveDirectoryRenames(renames, baseFiles, headFiles) {
   const baseSet = new Set(baseFiles);
   const filesUnder = /* @__PURE__ */ new Map();
   for (const file of baseSet) {
-    for (const dir of ancestorDirs(file)) filesUnder.set(dir, (filesUnder.get(dir) ?? 0) + 1);
+    for (const dir of ancestorDirs(file))
+      filesUnder.set(dir, (filesUnder.get(dir) ?? 0) + 1);
   }
   const toByFrom = /* @__PURE__ */ new Map();
-  for (const { from, to } of renames) if (baseSet.has(from)) toByFrom.set(from, to);
+  for (const { from, to } of renames)
+    if (baseSet.has(from)) toByFrom.set(from, to);
   const support = /* @__PURE__ */ new Map();
   for (const [from, to] of toByFrom) {
     const f = from.split("/");
@@ -24796,7 +25113,8 @@ function deriveDirectoryRenames(renames, baseFiles, headFiles) {
     return outerTo !== void 0 && to === `${outerTo}${from.slice(outer.length)}`;
   });
   const headDirs = /* @__PURE__ */ new Set();
-  for (const file of headFiles ?? []) for (const dir of ancestorDirs(file)) headDirs.add(dir);
+  for (const file of headFiles ?? [])
+    for (const dir of ancestorDirs(file)) headDirs.add(dir);
   const stillThere = (from, to) => headFiles !== void 0 && (headDirs.has(from) || to.startsWith(`${from}/`));
   return [...completeTo].filter(([from, to]) => !implied(from, to) && !stillThere(from, to)).map(([from, to]) => ({ from, to, similarity: 100 })).sort((a, b) => compareStrings2(a.from, b.from));
 }
@@ -24807,7 +25125,11 @@ import { existsSync } from "node:fs";
 var DEFAULT_GIT_BINARY = "git";
 var INHERITED_GIT_VARIABLES = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"];
 function gitEnvironment() {
-  const env = { ...process.env, LC_ALL: "C", GIT_OPTIONAL_LOCKS: "0" };
+  const env = {
+    ...process.env,
+    LC_ALL: "C",
+    GIT_OPTIONAL_LOCKS: "0"
+  };
   for (const name of INHERITED_GIT_VARIABLES) delete env[name];
   return env;
 }
@@ -24831,11 +25153,19 @@ function runGit(repoDir, args, options = {}) {
     child.on("error", (error) => {
       if (error.code === "ENOENT") {
         reject(
-          existsSync(repoDir) ? new GitNotFoundError(gitBinary, { args, cause: error }) : new GitError(`repository directory does not exist: ${repoDir}`, { args, cause: error })
+          existsSync(repoDir) ? new GitNotFoundError(gitBinary, { args, cause: error }) : new GitError(`repository directory does not exist: ${repoDir}`, {
+            args,
+            cause: error
+          })
         );
         return;
       }
-      reject(new GitError(`failed to start ${gitBinary}: ${error.message}`, { args, cause: error }));
+      reject(
+        new GitError(`failed to start ${gitBinary}: ${error.message}`, {
+          args,
+          cause: error
+        })
+      );
     });
     child.on("close", (exitCode) => {
       const result = {
@@ -24869,17 +25199,26 @@ async function resolveCommit(repoDir, rev, options = {}) {
     return stdout.toString("utf8").trim();
   } catch (error) {
     if (error instanceof GitError && error.exitCode === 128 && /Needed a single revision/.test(error.stderr)) {
-      throw new UnknownRevisionError(rev, { args: error.args, stderr: error.stderr, exitCode: error.exitCode });
+      throw new UnknownRevisionError(rev, {
+        args: error.args,
+        stderr: error.stderr,
+        exitCode: error.exitCode
+      });
     }
     throw error;
   }
 }
 async function repositoryRoot(dir, options = {}) {
   try {
-    const { stdout } = await runGit(dir, ["rev-parse", "--show-toplevel"], options);
+    const { stdout } = await runGit(
+      dir,
+      ["rev-parse", "--show-toplevel"],
+      options
+    );
     return stdout.toString("utf8").replace(/\r?\n$/, "");
   } catch (error) {
-    if (error instanceof GitError && error.exitCode === 128 && /work ?tree/i.test(error.stderr)) return dir;
+    if (error instanceof GitError && error.exitCode === 128 && /work ?tree/i.test(error.stderr))
+      return dir;
     throw error;
   }
 }
@@ -24899,18 +25238,28 @@ function parseLsTree(output) {
     const tab = record.indexOf("	");
     const [mode, , oid] = record.slice(0, tab).split(" ");
     if (tab < 0 || mode === void 0 || oid === void 0) {
-      throw new GitError(`unexpected git ls-tree record: ${JSON.stringify(record)}`);
+      throw new GitError(
+        `unexpected git ls-tree record: ${JSON.stringify(record)}`
+      );
     }
-    entries.push({ path: record.slice(tab + 1), kind: kindOf(mode), mode, oid });
+    entries.push({
+      path: record.slice(tab + 1),
+      kind: kindOf(mode),
+      mode,
+      oid
+    });
   }
-  return entries.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  return entries.sort(
+    (a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0
+  );
 }
 function parseCatFileBatch(output) {
   const contents = /* @__PURE__ */ new Map();
   let offset = 0;
   while (offset < output.length) {
     const headerEnd = output.indexOf(10, offset);
-    if (headerEnd < 0) throw new GitError("truncated git cat-file --batch output");
+    if (headerEnd < 0)
+      throw new GitError("truncated git cat-file --batch output");
     const [oid, type, size] = output.toString("utf8", offset, headerEnd).split(" ");
     offset = headerEnd + 1;
     if (oid === void 0 || type === "missing") continue;
@@ -24939,7 +25288,9 @@ function parseGrep(output, commit) {
     const line = Number(take(0));
     const text5 = take(10);
     if (!location.startsWith(prefix) || !Number.isInteger(line)) {
-      throw new GitError(`unexpected git grep output near ${JSON.stringify(location)}`);
+      throw new GitError(
+        `unexpected git grep output near ${JSON.stringify(location)}`
+      );
     }
     hits.push({ path: location.slice(prefix.length), line, text: text5 });
   }
@@ -24949,10 +25300,17 @@ async function openSnapshot(repoDir, rev, options = {}) {
   const commit = await resolveCommit(repoDir, rev, options);
   let listing;
   const list3 = () => {
-    listing ??= runGit(repoDir, ["ls-tree", "-r", "-z", "--full-tree", commit], options).then(
+    listing ??= runGit(
+      repoDir,
+      ["ls-tree", "-r", "-z", "--full-tree", commit],
+      options
+    ).then(
       ({ stdout }) => {
         const entries = parseLsTree(stdout);
-        return { entries, byPath: new Map(entries.map((entry) => [entry.path, entry])) };
+        return {
+          entries,
+          byPath: new Map(entries.map((entry) => [entry.path, entry]))
+        };
       },
       (error) => {
         listing = void 0;
@@ -24966,7 +25324,8 @@ async function openSnapshot(repoDir, rev, options = {}) {
     const found = [];
     for (const path2 of new Set(paths)) {
       const entry = byPath.get(path2);
-      if (entry !== void 0 && entry.kind !== "submodule") found.push({ path: path2, oid: entry.oid });
+      if (entry !== void 0 && entry.kind !== "submodule")
+        found.push({ path: path2, oid: entry.oid });
     }
     const result = /* @__PURE__ */ new Map();
     if (found.length === 0) return result;
@@ -25025,12 +25384,18 @@ function compareStrings3(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 function parseNameStatus(output) {
-  const result = { renamed: [], deleted: [], added: [], modified: [] };
+  const result = {
+    renamed: [],
+    deleted: [],
+    added: [],
+    modified: []
+  };
   const fields = output.toString("utf8").split("\0");
   if (fields.at(-1) === "") fields.pop();
   const next = (what) => {
     const field = fields.shift();
-    if (field === void 0) throw new GitError(`truncated git diff output: missing ${what}`);
+    if (field === void 0)
+      throw new GitError(`truncated git diff output: missing ${what}`);
     return field;
   };
   while (fields.length > 0) {
@@ -25052,13 +25417,16 @@ function parseNameStatus(output) {
         break;
       case "R": {
         const similarity = Number(status.slice(1));
-        if (!Number.isInteger(similarity)) throw new GitError(`unexpected git diff status: ${status}`);
+        if (!Number.isInteger(similarity))
+          throw new GitError(`unexpected git diff status: ${status}`);
         const from = next("source path");
         result.renamed.push({ from, to: next("destination path"), similarity });
         break;
       }
       default:
-        throw new GitError(`unexpected git diff status: ${JSON.stringify(status)}`);
+        throw new GitError(
+          `unexpected git diff status: ${JSON.stringify(status)}`
+        );
     }
   }
   result.added.sort(compareStrings3);
@@ -25075,7 +25443,9 @@ function renameLimitWarning(stderr, renameLimit) {
 async function computeChangeSet(repoDir, base, head, options = {}) {
   const { renameLimit = DEFAULT_RENAME_LIMIT, ...gitOptions } = options;
   if (!Number.isInteger(renameLimit) || renameLimit < 1) {
-    throw new RangeError(`renameLimit must be a positive integer, got ${renameLimit}`);
+    throw new RangeError(
+      `renameLimit must be a positive integer, got ${renameLimit}`
+    );
   }
   const baseSha = await resolveCommit(repoDir, base, gitOptions);
   const headSha = await resolveCommit(repoDir, head, gitOptions);
@@ -25105,7 +25475,10 @@ async function computeChangeSet(repoDir, base, head, options = {}) {
       openSnapshot(repoDir, baseSha, gitOptions),
       openSnapshot(repoDir, headSha, gitOptions)
     ]);
-    const [baseEntries, headEntries] = await Promise.all([baseSnapshot.listFiles(), headSnapshot.listFiles()]);
+    const [baseEntries, headEntries] = await Promise.all([
+      baseSnapshot.listFiles(),
+      headSnapshot.listFiles()
+    ]);
     renamedDirs = deriveDirectoryRenames(
       renamed,
       baseEntries.map((e) => e.path),
@@ -25243,7 +25616,11 @@ function parseGitHubRemote(url) {
 }
 async function readRepoSlug(repoDir, options = {}) {
   try {
-    const { stdout } = await runGit(repoDir, ["remote", "get-url", "origin"], options);
+    const { stdout } = await runGit(
+      repoDir,
+      ["remote", "get-url", "origin"],
+      options
+    );
     return parseGitHubRemote(stdout.toString("utf8"));
   } catch (error) {
     if (error instanceof GitError) return void 0;
@@ -25263,7 +25640,9 @@ async function runDiffCheck(dir, base, head, options = {}) {
     repoOverride ? Promise.resolve(void 0) : readRepoSlug(root2, git)
   ]);
   const repo = repoOverride ?? slug;
-  const config = await loadConfig(configFrom === "base" ? baseSnapshot : headSnapshot);
+  const config = await loadConfig(
+    configFrom === "base" ? baseSnapshot : headSnapshot
+  );
   return runCheck(baseSnapshot, headSnapshot, changes, {
     rules: defaultRules(),
     hunks,
@@ -25313,7 +25692,8 @@ function formatText(report) {
     for (const finding of group) {
       text5 += `  ${position2(finding).padEnd(width)}  ${finding.message}
 `;
-      if (finding.suggestion !== void 0) text5 += `    -> ${finding.suggestion}
+      if (finding.suggestion !== void 0)
+        text5 += `    -> ${finding.suggestion}
 `;
     }
     text5 += "\n";
@@ -25349,8 +25729,10 @@ function reportFailure(error, io) {
 `);
     return 2;
   }
-  io.stderr(`drift-ci: internal error: ${error instanceof Error ? error.message : String(error)}
-`);
+  io.stderr(
+    `drift-ci: internal error: ${error instanceof Error ? error.message : String(error)}
+`
+  );
   return 2;
 }
 async function runCheckCommand(options, io) {
@@ -25410,7 +25792,12 @@ var VALUE_FLAGS = {
 };
 function parseArgs(argv, defaultCwd) {
   const command = argv[0] === "scan" ? "scan" : "check";
-  const options = { base: "HEAD^", head: "HEAD", cwd: defaultCwd, format: "text" };
+  const options = {
+    base: "HEAD^",
+    head: "HEAD",
+    cwd: defaultCwd,
+    format: "text"
+  };
   let failOn;
   const args = argv[0] === "check" || argv[0] === "scan" ? argv.slice(1) : argv;
   for (let i = 0; i < args.length; i++) {
@@ -25419,7 +25806,10 @@ function parseArgs(argv, defaultCwd) {
     if (arg === "-v" || arg === "--version") return { kind: "version" };
     if (arg === void 0 || !VALUE_FLAGS[command].includes(arg)) {
       if (command === "scan" && arg === "--base") {
-        return { kind: "error", message: "--base is not supported by scan (it looks at one commit)" };
+        return {
+          kind: "error",
+          message: "--base is not supported by scan (it looks at one commit)"
+        };
       }
       return { kind: "error", message: `unknown argument: ${String(arg)}` };
     }
@@ -25429,12 +25819,18 @@ function parseArgs(argv, defaultCwd) {
     }
     if (arg === "--format") {
       if (!OUTPUT_FORMATS.includes(value2)) {
-        return { kind: "error", message: `unknown format: ${value2} (expected json or text)` };
+        return {
+          kind: "error",
+          message: `unknown format: ${value2} (expected json or text)`
+        };
       }
       options.format = value2;
     } else if (arg === "--fail-on") {
       if (!FAIL_ON_VALUES.includes(value2)) {
-        return { kind: "error", message: `unknown --fail-on value: ${value2} (expected none or warning)` };
+        return {
+          kind: "error",
+          message: `unknown --fail-on value: ${value2} (expected none or warning)`
+        };
       }
       failOn = value2;
     } else {

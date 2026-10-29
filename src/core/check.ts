@@ -1,12 +1,18 @@
 // The check harness: indexes the docs of the head commit and asks each rule
 // whether the references found there drifted in the change. Pure: everything
 // it knows about the repository comes through the two snapshots and the change set.
-import { collectFindings } from './collect.ts';
-import { CHECK_RULE_IDS, CONFIG_PATH, isExcludedByConfig, type CheckKey, type DriftConfig } from './config.ts';
-import { FINDING_SCHEMA_VERSION, type CheckResult } from './finding.ts';
-import type { RepoIdentity } from './shapes.ts';
-import type { CheckContext, DiffHunk, Rule } from './rules.ts';
-import type { ChangeSet, RepoSnapshot } from './snapshot.ts';
+import { collectFindings } from "./collect.ts";
+import {
+  CHECK_RULE_IDS,
+  CONFIG_PATH,
+  isExcludedByConfig,
+  type CheckKey,
+  type DriftConfig,
+} from "./config.ts";
+import { FINDING_SCHEMA_VERSION, type CheckResult } from "./finding.ts";
+import type { RepoIdentity } from "./shapes.ts";
+import type { CheckContext, DiffHunk, Rule } from "./rules.ts";
+import type { ChangeSet, RepoSnapshot } from "./snapshot.ts";
 
 export interface CheckOptions {
   rules: readonly Rule[];
@@ -33,10 +39,23 @@ function touchesConfig(changes: ChangeSet): boolean {
   );
 }
 
+/** The union of the rules' needles, or `undefined` when one rule cannot tell (every doc is then parsed). */
+export function needlesOf(rules: readonly Rule[]): string[] | undefined {
+  const all = new Set<string>();
+  for (const rule of rules) {
+    const needles = rule.needles?.();
+    if (needles === undefined) return undefined;
+    for (const needle of needles) all.add(needle);
+  }
+  return [...all];
+}
+
 /** Ids of the rules the config's `checks` switch off. */
 export function disabledRuleIds(config: DriftConfig): Set<string> {
   const keys = Object.keys(CHECK_RULE_IDS) as CheckKey[];
-  return new Set(keys.filter((key) => !config.checks[key]).map((key) => CHECK_RULE_IDS[key]));
+  return new Set(
+    keys.filter((key) => !config.checks[key]).map((key) => CHECK_RULE_IDS[key]),
+  );
 }
 
 /**
@@ -53,7 +72,10 @@ export async function runCheck(
   const disabled = config ? disabledRuleIds(config) : new Set<string>();
   const rules = options.rules.filter((rule) => !disabled.has(rule.id));
 
-  const [baseFiles, headFiles] = await Promise.all([base.listFiles(), head.listFiles()]);
+  const [baseFiles, headFiles] = await Promise.all([
+    base.listFiles(),
+    head.listFiles(),
+  ]);
   const warnings: string[] = [...changes.warnings];
   const ctx: CheckContext = {
     base,
@@ -62,12 +84,15 @@ export async function runCheck(
     baseFiles,
     headFiles,
     hunks,
-    ...(config ? { excludedPaths: (path: string) => isExcludedByConfig(path, config) } : {}),
+    ...(config
+      ? { excludedPaths: (path: string) => isExcludedByConfig(path, config) }
+      : {}),
     warn: (message) => {
       if (!warnings.includes(message)) warnings.push(message);
     },
   };
   for (const rule of rules) await rule.prepare(ctx);
+  const needles = needlesOf(rules);
 
   const findings = await collectFindings(head, headFiles, {
     rules,
@@ -76,16 +101,17 @@ export async function runCheck(
     ...(config ? { config } : {}),
     ...(options.docFilter ? { docFilter: options.docFilter } : {}),
     warn: ctx.warn,
+    ...(needles ? { needles } : {}),
   });
 
   return {
     schemaVersion: FINDING_SCHEMA_VERSION,
-    mode: 'diff',
+    mode: "diff",
     base: base.commit,
     head: head.commit,
     findings,
     warnings,
-    failOn: config?.failOn ?? 'none',
+    failOn: config?.failOn ?? "none",
     ...(touchesConfig(changes) ? { configChanged: true as const } : {}),
   };
 }

@@ -1,9 +1,9 @@
 // The only place that starts git. Always an argument array, never a shell.
-import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { GitError, GitNotFoundError } from './errors.ts';
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { GitError, GitNotFoundError } from "./errors.ts";
 
-export const DEFAULT_GIT_BINARY = 'git';
+export const DEFAULT_GIT_BINARY = "git";
 
 export interface GitOptions {
   /** Path or name of the git executable. Default: `git` from PATH. */
@@ -24,10 +24,14 @@ export interface GitResult {
 }
 
 // The repository is the directory we are given, whatever the caller's environment says.
-const INHERITED_GIT_VARIABLES = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'];
+const INHERITED_GIT_VARIABLES = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"];
 
 function gitEnvironment(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0' };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    LC_ALL: "C",
+    GIT_OPTIONAL_LOCKS: "0",
+  };
   for (const name of INHERITED_GIT_VARIABLES) delete env[name];
   return env;
 }
@@ -46,52 +50,63 @@ export function runGit(
 ): Promise<GitResult> {
   const gitBinary = options.gitBinary ?? DEFAULT_GIT_BINARY;
   const okExitCodes = options.okExitCodes ?? [];
-  const fullArgs = ['-c', 'core.quotePath=false', ...args];
+  const fullArgs = ["-c", "core.quotePath=false", ...args];
 
   return new Promise<GitResult>((resolve, reject) => {
     const child = spawn(gitBinary, fullArgs, {
       cwd: repoDir,
       env: gitEnvironment(),
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
 
     // git may exit before reading all of its input; its exit code tells why.
-    child.stdin.on('error', () => {});
+    child.stdin.on("error", () => {});
     child.stdin.end(options.input);
 
-    child.on('error', (error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') {
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
         // spawn reports a missing working directory as ENOENT too.
         reject(
           existsSync(repoDir)
             ? new GitNotFoundError(gitBinary, { args, cause: error })
-            : new GitError(`repository directory does not exist: ${repoDir}`, { args, cause: error }),
+            : new GitError(`repository directory does not exist: ${repoDir}`, {
+                args,
+                cause: error,
+              }),
         );
         return;
       }
-      reject(new GitError(`failed to start ${gitBinary}: ${error.message}`, { args, cause: error }));
+      reject(
+        new GitError(`failed to start ${gitBinary}: ${error.message}`, {
+          args,
+          cause: error,
+        }),
+      );
     });
 
-    child.on('close', (exitCode) => {
+    child.on("close", (exitCode) => {
       const result: GitResult = {
         stdout: Buffer.concat(stdout),
-        stderr: Buffer.concat(stderr).toString('utf8'),
+        stderr: Buffer.concat(stderr).toString("utf8"),
         exitCode: exitCode ?? -1,
       };
-      if (exitCode === 0 || (exitCode !== null && okExitCodes.includes(exitCode))) {
+      if (
+        exitCode === 0 ||
+        (exitCode !== null && okExitCodes.includes(exitCode))
+      ) {
         resolve(result);
         return;
       }
       const detail = result.stderr.trim();
       reject(
         new GitError(
-          `git ${args.join(' ')} failed${exitCode === null ? ' (killed by a signal)' : ` with exit code ${exitCode}`}${
-            detail ? `: ${detail}` : ''
+          `git ${args.join(" ")} failed${exitCode === null ? " (killed by a signal)" : ` with exit code ${exitCode}`}${
+            detail ? `: ${detail}` : ""
           }`,
           { args, stderr: result.stderr, exitCode: exitCode ?? undefined },
         ),
