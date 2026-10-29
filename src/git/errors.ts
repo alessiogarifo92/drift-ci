@@ -17,10 +17,13 @@ export class GitError extends Error {
   readonly exitCode: number | undefined;
 
   constructor(message: string, details: GitErrorDetails = {}) {
-    super(message, details.cause === undefined ? undefined : { cause: details.cause });
-    this.name = 'GitError';
+    super(
+      message,
+      details.cause === undefined ? undefined : { cause: details.cause },
+    );
+    this.name = "GitError";
     this.args = details.args ?? [];
-    this.stderr = details.stderr ?? '';
+    this.stderr = details.stderr ?? "";
     this.exitCode = details.exitCode;
   }
 }
@@ -31,7 +34,7 @@ export class GitNotFoundError extends GitError {
 
   constructor(gitBinary: string, details: GitErrorDetails = {}) {
     super(`git executable not found: ${gitBinary}`, details);
-    this.name = 'GitNotFoundError';
+    this.name = "GitNotFoundError";
     this.gitBinary = gitBinary;
   }
 }
@@ -42,7 +45,7 @@ export class UnknownRevisionError extends GitError {
 
   constructor(rev: string, details: GitErrorDetails = {}) {
     super(`unknown revision: ${rev}`, details);
-    this.name = 'UnknownRevisionError';
+    this.name = "UnknownRevisionError";
     this.rev = rev;
   }
 }

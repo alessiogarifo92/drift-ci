@@ -1,16 +1,16 @@
 // `drift-ci check`: runs the rules between two commits of a repository and prints the result.
-import { ConfigError } from '../core/config.ts';
-import type { CheckResult, FailOn, Report } from '../core/finding.ts';
-import { GitError } from '../git/errors.ts';
-import { runDiffCheck } from '../git/pipeline.ts';
-import type { Io } from './io.ts';
-import { formatJson, formatText, formatWarnings } from './report.ts';
+import { ConfigError } from "../core/config.ts";
+import type { CheckResult, FailOn, Report } from "../core/finding.ts";
+import { GitError } from "../git/errors.ts";
+import { runDiffCheck } from "../git/pipeline.ts";
+import type { Io } from "./io.ts";
+import { formatJson, formatText, formatWarnings } from "./report.ts";
 
-export type OutputFormat = 'text' | 'json';
+export type OutputFormat = "text" | "json";
 
-export const OUTPUT_FORMATS: readonly OutputFormat[] = ['text', 'json'];
+export const OUTPUT_FORMATS: readonly OutputFormat[] = ["text", "json"];
 
-export const FAIL_ON_VALUES: readonly FailOn[] = ['none', 'warning'];
+export const FAIL_ON_VALUES: readonly FailOn[] = ["none", "warning"];
 
 export interface CheckCommandOptions {
   base: string;
@@ -25,15 +25,27 @@ export interface CheckCommandOptions {
  * Exit code for a result that was produced: 1 when the effective `failOn` (the flag, else the config's) is
  * `warning` and there is at least one finding, else 0.
  */
-export function exitCodeFor(report: Report, failOn: FailOn | undefined): number {
-  return (failOn ?? report.failOn) === 'warning' && report.findings.length > 0 ? 1 : 0;
+export function exitCodeFor(
+  report: Report,
+  failOn: FailOn | undefined,
+): number {
+  return (failOn ?? report.failOn) === "warning" && report.findings.length > 0
+    ? 1
+    : 0;
 }
 
 /** Prints the result (stdout) and its warnings (stderr); returns the exit code. */
-export function printReport(report: Report, options: { format: OutputFormat; failOn?: FailOn }, io: Io): number {
+export function printReport(
+  report: Report,
+  options: { format: OutputFormat; failOn?: FailOn },
+  io: Io,
+): number {
   // The JSON carries the failOn the exit code was computed with: the flag wins over the config.
-  const shown: Report = options.failOn === undefined ? report : { ...report, failOn: options.failOn };
-  io.stdout(options.format === 'json' ? formatJson(shown) : formatText(shown));
+  const shown: Report =
+    options.failOn === undefined
+      ? report
+      : { ...report, failOn: options.failOn };
+  io.stdout(options.format === "json" ? formatJson(shown) : formatText(shown));
   io.stderr(formatWarnings(report));
   return exitCodeFor(report, options.failOn);
 }
@@ -49,10 +61,12 @@ export function reportFailure(error: unknown, io: Io): number {
     return 2;
   }
   if (error instanceof GitError) {
-    io.stderr(`drift-ci: ${error.message.split('\n')[0]}\n`);
+    io.stderr(`drift-ci: ${error.message.split("\n")[0]}\n`);
     return 2;
   }
-  io.stderr(`drift-ci: internal error: ${error instanceof Error ? error.message : String(error)}\n`);
+  io.stderr(
+    `drift-ci: internal error: ${error instanceof Error ? error.message : String(error)}\n`,
+  );
   return 2;
 }
 
@@ -61,7 +75,10 @@ export function reportFailure(error: unknown, io: Io): number {
  * `failOn: warning`, found nothing), 1 when it found something with `failOn: warning`, 2 when git cannot
  * answer (bad ref, not a repository) or the head's `.drift-ci.yml` is invalid.
  */
-export async function runCheckCommand(options: CheckCommandOptions, io: Io): Promise<number> {
+export async function runCheckCommand(
+  options: CheckCommandOptions,
+  io: Io,
+): Promise<number> {
   const { base, head, cwd, format, failOn } = options;
   let result: CheckResult;
   try {

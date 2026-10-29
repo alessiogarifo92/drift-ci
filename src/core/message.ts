@@ -3,7 +3,7 @@
 // A name must therefore never carry a backtick of its own into a message.
 
 /** MODIFIER LETTER GRAVE ACCENT: looks like a backtick, is not one. */
-const LOOKALIKE_BACKTICK = 'ˋ';
+const LOOKALIKE_BACKTICK = "ˋ";
 
 /** `value` as an inline code span of a message; backticks inside the value become look-alikes. */
 export function codeName(value: string): string {

@@ -2,13 +2,13 @@
 // diff-mode check there is no base to prove the reference once worked, so only rules that implement
 // `scan` take part (paths, npm scripts, make targets): environment variables need the diff, and bins
 // cannot be told from any other command. Pure: everything comes through the head snapshot.
-import { collectFindings } from './collect.ts';
-import { disabledRuleIds } from './check.ts';
-import { isExcludedByConfig, type DriftConfig } from './config.ts';
-import { FINDING_SCHEMA_VERSION, type ScanResult } from './finding.ts';
-import type { CheckContext, Rule } from './rules.ts';
-import type { RepoIdentity } from './shapes.ts';
-import type { ChangeSet, RepoSnapshot } from './snapshot.ts';
+import { collectFindings } from "./collect.ts";
+import { disabledRuleIds } from "./check.ts";
+import { isExcludedByConfig, type DriftConfig } from "./config.ts";
+import { FINDING_SCHEMA_VERSION, type ScanResult } from "./finding.ts";
+import type { CheckContext, Rule } from "./rules.ts";
+import type { RepoIdentity } from "./shapes.ts";
+import type { ChangeSet, RepoSnapshot } from "./snapshot.ts";
 
 export interface ScanOptions {
   rules: readonly Rule[];
@@ -20,13 +20,25 @@ export interface ScanOptions {
   docFilter?: (path: string) => boolean;
 }
 
-const NO_CHANGES: ChangeSet = { renamed: [], renamedDirs: [], deleted: [], added: [], modified: [], warnings: [] };
+const NO_CHANGES: ChangeSet = {
+  renamed: [],
+  renamedDirs: [],
+  deleted: [],
+  added: [],
+  modified: [],
+  warnings: [],
+};
 
 /** Findings for every scannable reference of the head docs that does not resolve at head. */
-export async function scanSnapshot(head: RepoSnapshot, options: ScanOptions): Promise<ScanResult> {
+export async function scanSnapshot(
+  head: RepoSnapshot,
+  options: ScanOptions,
+): Promise<ScanResult> {
   const { repo, config } = options;
   const disabled = config ? disabledRuleIds(config) : new Set<string>();
-  const rules = options.rules.filter((rule) => rule.scan !== undefined && !disabled.has(rule.id));
+  const rules = options.rules.filter(
+    (rule) => rule.scan !== undefined && !disabled.has(rule.id),
+  );
 
   const headFiles = await head.listFiles();
   const warnings: string[] = [];
@@ -38,7 +50,9 @@ export async function scanSnapshot(head: RepoSnapshot, options: ScanOptions): Pr
     baseFiles: headFiles,
     headFiles,
     hunks: [],
-    ...(config ? { excludedPaths: (path: string) => isExcludedByConfig(path, config) } : {}),
+    ...(config
+      ? { excludedPaths: (path: string) => isExcludedByConfig(path, config) }
+      : {}),
     warn: (message) => {
       if (!warnings.includes(message)) warnings.push(message);
     },
@@ -56,10 +70,10 @@ export async function scanSnapshot(head: RepoSnapshot, options: ScanOptions): Pr
 
   return {
     schemaVersion: FINDING_SCHEMA_VERSION,
-    mode: 'scan',
+    mode: "scan",
     head: head.commit,
     findings,
     warnings,
-    failOn: config?.failOn ?? 'none',
+    failOn: config?.failOn ?? "none",
   };
 }

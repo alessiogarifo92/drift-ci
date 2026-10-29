@@ -2,7 +2,7 @@
 // (RepoSnapshot, ChangeSet) plus the pure helpers that work on their data.
 // Adapters live outside src/core: see src/git for the git-backed ones.
 
-export type EntryKind = 'file' | 'symlink' | 'submodule';
+export type EntryKind = "file" | "symlink" | "submodule";
 
 /** One tree entry of a commit. Directories are not listed, only what they contain. */
 export interface SnapshotEntry {
@@ -32,7 +32,10 @@ export interface RepoSnapshot {
   /** Reads many files in one batch; absent or non-blob paths are omitted from the result. */
   readFiles(paths: readonly string[]): Promise<Map<string, string>>;
   /** Whole-word, fixed-string search (`ignoreCase`: case-insensitive). Lines are 1-indexed; no match is `[]`. */
-  grep(word: string, options?: { pathspecs?: readonly string[]; ignoreCase?: boolean }): Promise<GrepHit[]>;
+  grep(
+    word: string,
+    options?: { pathspecs?: readonly string[]; ignoreCase?: boolean },
+  ): Promise<GrepHit[]>;
 }
 
 export interface Rename {
@@ -61,9 +64,10 @@ function compareStrings(a: string, b: string): number {
 
 /** `a/b/c.txt` → `['a', 'a/b']`. */
 function ancestorDirs(path: string): string[] {
-  const segments = path.split('/');
+  const segments = path.split("/");
   const dirs: string[] = [];
-  for (let i = 1; i < segments.length; i++) dirs.push(segments.slice(0, i).join('/'));
+  for (let i = 1; i < segments.length; i++)
+    dirs.push(segments.slice(0, i).join("/"));
   return dirs;
 }
 
@@ -86,20 +90,29 @@ export function deriveDirectoryRenames(
   // Number of base files under each directory.
   const filesUnder = new Map<string, number>();
   for (const file of baseSet) {
-    for (const dir of ancestorDirs(file)) filesUnder.set(dir, (filesUnder.get(dir) ?? 0) + 1);
+    for (const dir of ancestorDirs(file))
+      filesUnder.set(dir, (filesUnder.get(dir) ?? 0) + 1);
   }
 
   // Each rename votes for every directory pair it is consistent with: peel
   // matching trailing path segments off both sides, what remains are D and D'.
   const toByFrom = new Map<string, string>();
-  for (const { from, to } of renames) if (baseSet.has(from)) toByFrom.set(from, to);
-  const support = new Map<string, { from: string; to: string; votes: number }>();
+  for (const { from, to } of renames)
+    if (baseSet.has(from)) toByFrom.set(from, to);
+  const support = new Map<
+    string,
+    { from: string; to: string; votes: number }
+  >();
   for (const [from, to] of toByFrom) {
-    const f = from.split('/');
-    const t = to.split('/');
-    for (let k = 1; k < f.length && k < t.length && f[f.length - k] === t[t.length - k]; k++) {
-      const dirFrom = f.slice(0, f.length - k).join('/');
-      const dirTo = t.slice(0, t.length - k).join('/');
+    const f = from.split("/");
+    const t = to.split("/");
+    for (
+      let k = 1;
+      k < f.length && k < t.length && f[f.length - k] === t[t.length - k];
+      k++
+    ) {
+      const dirFrom = f.slice(0, f.length - k).join("/");
+      const dirTo = t.slice(0, t.length - k).join("/");
       const key = `${dirFrom}\0${dirTo}`;
       const entry = support.get(key) ?? { from: dirFrom, to: dirTo, votes: 0 };
       entry.votes++;
@@ -115,15 +128,19 @@ export function deriveDirectoryRenames(
   const implied = (from: string, to: string): boolean =>
     ancestorDirs(from).some((outer) => {
       const outerTo = completeTo.get(outer);
-      return outerTo !== undefined && to === `${outerTo}${from.slice(outer.length)}`;
+      return (
+        outerTo !== undefined && to === `${outerTo}${from.slice(outer.length)}`
+      );
     });
 
   // With the head listing: a directory that still holds files in head, or that moved
   // into its own subtree (`src` → `src/lib`), was not renamed as a whole.
   const headDirs = new Set<string>();
-  for (const file of headFiles ?? []) for (const dir of ancestorDirs(file)) headDirs.add(dir);
+  for (const file of headFiles ?? [])
+    for (const dir of ancestorDirs(file)) headDirs.add(dir);
   const stillThere = (from: string, to: string): boolean =>
-    headFiles !== undefined && (headDirs.has(from) || to.startsWith(`${from}/`));
+    headFiles !== undefined &&
+    (headDirs.has(from) || to.startsWith(`${from}/`));
 
   return [...completeTo]
     .filter(([from, to]) => !implied(from, to) && !stillThere(from, to))

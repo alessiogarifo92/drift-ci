@@ -1,17 +1,17 @@
 // The whole run against a local repository, git adapters in, result out: diff mode (CheckResult) and scan
 // mode (ScanResult). Shared by the CLI and the GitHub Action so both report exactly the same findings.
-import { runCheck } from '../core/check.ts';
-import { loadConfig } from '../core/config.ts';
-import type { CheckResult, ScanResult } from '../core/finding.ts';
-import { defaultRules } from '../core/rules/index.ts';
-import { scanSnapshot } from '../core/scan.ts';
-import type { RepoIdentity } from '../core/shapes.ts';
-import { computeChangeSet } from './changeset.ts';
-import { computeHunks } from './hunks.ts';
-import { readRepoSlug } from './remote.ts';
-import { repositoryRoot } from './revision.ts';
-import type { GitOptions } from './run.ts';
-import { openSnapshot } from './snapshot.ts';
+import { runCheck } from "../core/check.ts";
+import { loadConfig } from "../core/config.ts";
+import type { CheckResult, ScanResult } from "../core/finding.ts";
+import { defaultRules } from "../core/rules/index.ts";
+import { scanSnapshot } from "../core/scan.ts";
+import type { RepoIdentity } from "../core/shapes.ts";
+import { computeChangeSet } from "./changeset.ts";
+import { computeHunks } from "./hunks.ts";
+import { readRepoSlug } from "./remote.ts";
+import { repositoryRoot } from "./revision.ts";
+import type { GitOptions } from "./run.ts";
+import { openSnapshot } from "./snapshot.ts";
 
 export interface DiffCheckOptions extends GitOptions {
   /** Overrides the owner/name read from the origin remote (the Action knows it from the event). */
@@ -20,7 +20,7 @@ export interface DiffCheckOptions extends GitOptions {
    * Which side's `.drift-ci.yml` to apply (default `head`). The Action uses `base`, so a pull request cannot
    * loosen or disable its own check: a config change applies once merged, as GitHub does for CODEOWNERS.
    */
-  configFrom?: 'base' | 'head';
+  configFrom?: "base" | "head";
 }
 
 /**
@@ -35,7 +35,7 @@ export async function runDiffCheck(
   head: string,
   options: DiffCheckOptions = {},
 ): Promise<CheckResult> {
-  const { repo: repoOverride, configFrom = 'head', ...git } = options;
+  const { repo: repoOverride, configFrom = "head", ...git } = options;
   const root = await repositoryRoot(dir, git);
   const [baseSnapshot, headSnapshot, changes, hunks, slug] = await Promise.all([
     openSnapshot(root, base, git),
@@ -45,7 +45,9 @@ export async function runDiffCheck(
     repoOverride ? Promise.resolve(undefined) : readRepoSlug(root, git),
   ]);
   const repo = repoOverride ?? slug;
-  const config = await loadConfig(configFrom === 'base' ? baseSnapshot : headSnapshot);
+  const config = await loadConfig(
+    configFrom === "base" ? baseSnapshot : headSnapshot,
+  );
   return runCheck(baseSnapshot, headSnapshot, changes, {
     rules: defaultRules(),
     hunks,
@@ -58,7 +60,11 @@ export async function runDiffCheck(
  * Scan mode (beta): the references of the docs of `head` that resolve to nothing at `head`, without a
  * base. Same root resolution, config and repository identity as `runDiffCheck`; throws the same errors.
  */
-export async function runScan(dir: string, head: string, options: GitOptions & { repo?: RepoIdentity } = {}): Promise<ScanResult> {
+export async function runScan(
+  dir: string,
+  head: string,
+  options: GitOptions & { repo?: RepoIdentity } = {},
+): Promise<ScanResult> {
   const { repo: repoOverride, ...git } = options;
   const root = await repositoryRoot(dir, git);
   const [headSnapshot, slug] = await Promise.all([

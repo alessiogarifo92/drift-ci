@@ -1,5 +1,5 @@
 // The slice of `@actions/core` the Action uses, behind an interface so tests can record it.
-import * as core from '@actions/core';
+import * as core from "@actions/core";
 
 export interface ActionCore {
   info(message: string): void;

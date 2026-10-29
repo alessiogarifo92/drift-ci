@@ -1,3 +1,3 @@
-import { runAction } from './main.ts';
+import { runAction } from "./main.ts";
 
 await runAction();
