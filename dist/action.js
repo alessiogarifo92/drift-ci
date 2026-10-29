@@ -41495,7 +41495,11 @@ var WELL_KNOWN_ENV_VARS = /* @__PURE__ */ new Set([
   "NO_COLOR",
   "COLORTERM"
 ]);
-var WELL_KNOWN_ENV_PREFIXES = ["GITHUB_", "RUNNER_", "npm_"];
+var WELL_KNOWN_ENV_PREFIXES = [
+  "GITHUB_",
+  "RUNNER_",
+  "npm_"
+];
 function isWellKnownEnv(name) {
   return WELL_KNOWN_ENV_VARS.has(name) || WELL_KNOWN_ENV_PREFIXES.some((prefix) => name.startsWith(prefix));
 }
@@ -41533,7 +41537,8 @@ function isMeaningful(path2) {
   return /[A-Za-z0-9]/.test(path2) && !/^[./]*$/.test(path2);
 }
 function pathFromCode(token) {
-  if (token === "" || token.startsWith("-") || token.startsWith("~")) return void 0;
+  if (token === "" || token.startsWith("-") || token.startsWith("~"))
+    return void 0;
   if (SCHEME_URL.test(token) || OPAQUE_SCHEME.test(token)) return void 0;
   const hash = token.indexOf("#");
   const withoutAnchor = hash >= 0 ? token.slice(0, hash) : token;
@@ -41541,15 +41546,20 @@ function pathFromCode(token) {
   const glob = GLOB_CHARS.test(bare);
   if (!(glob ? GLOB_PATH : CODE_PATH).test(bare)) return void 0;
   const normalized = stripDotSlash(bare);
-  if (!isMeaningful(normalized) || FRACTION_OR_DATE.test(normalized)) return void 0;
+  if (!isMeaningful(normalized) || FRACTION_OR_DATE.test(normalized))
+    return void 0;
   const ext = extensionOf(normalized);
-  if (!normalized.includes("/") && !(ext !== void 0 && KNOWN_FILE_EXTENSIONS.has(ext))) return void 0;
+  if (!normalized.includes("/") && !(ext !== void 0 && KNOWN_FILE_EXTENSIONS.has(ext)))
+    return void 0;
   return { normalized, shadow: glob || normalized.startsWith("/") };
 }
 function pathFromText(token) {
   if (SCHEME_URL.test(token) || OPAQUE_SCHEME.test(token)) return void 0;
   const hash = token.indexOf("#");
-  const bare = (hash >= 0 ? token.slice(0, hash) : token).replace(LINE_SUFFIX, "");
+  const bare = (hash >= 0 ? token.slice(0, hash) : token).replace(
+    LINE_SUFFIX,
+    ""
+  );
   if (bare === "" || !/^[\w@.+*?/-]+$/.test(bare)) return void 0;
   const glob = /[*?]/.test(bare);
   const normalized = stripDotSlash(bare);
@@ -41564,19 +41574,34 @@ function pathFromText(token) {
   const segments = normalized.split("/");
   const trailingSlash = normalized.endsWith("/");
   const first = segments[0] ?? "";
-  if (/^[A-Za-z]\/$/.test(normalized) || FRACTION_OR_DATE.test(normalized)) return void 0;
-  if (first !== "" && !bare.startsWith(".") && DOMAIN_FIRST_SEGMENT.test(first)) return void 0;
+  if (/^[A-Za-z]\/$/.test(normalized) || FRACTION_OR_DATE.test(normalized))
+    return void 0;
+  if (first !== "" && !bare.startsWith(".") && DOMAIN_FIRST_SEGMENT.test(first))
+    return void 0;
   if (!trailingSlash && !TEXT_EXTENSION.test(normalized)) return void 0;
   return { normalized, shadow: glob || normalized.startsWith("/") };
 }
-var LIVE_REFS = /* @__PURE__ */ new Set(["main", "master", "HEAD", "trunk"]);
+var LIVE_REFS = /* @__PURE__ */ new Set([
+  "main",
+  "master",
+  "HEAD",
+  "trunk"
+]);
 function githubRepoPath(url, repo) {
-  const match = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/(?:blob|tree)\/([^/]+)\/(.+)$/i.exec(url);
+  const sameRepo = (owner2, name2) => owner2?.toLowerCase() === repo.owner.toLowerCase() && name2?.toLowerCase() === repo.name.toLowerCase();
+  const workflow = /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/actions\/workflows\/([^/?#]+\.ya?ml)(?:\/badge\.svg)?(?:[?#].*)?$/i.exec(
+    url
+  );
+  if (workflow) {
+    const [, owner2, name2, file = ""] = workflow;
+    return sameRepo(owner2, name2) ? { path: `.github/workflows/${file}`, live: true } : void 0;
+  }
+  const match = /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/(?:blob|tree)\/([^/]+)\/(.+)$/i.exec(
+    url
+  );
   if (!match) return void 0;
   const [, owner, name, ref = "", rest = ""] = match;
-  if (owner?.toLowerCase() !== repo.owner.toLowerCase() || name?.toLowerCase() !== repo.name.toLowerCase()) {
-    return void 0;
-  }
+  if (!sameRepo(owner, name)) return void 0;
   const live = LIVE_REFS.has(ref) || repo.defaultBranch !== void 0 && ref === repo.defaultBranch;
   return { path: rest, live };
 }
@@ -42310,15 +42335,36 @@ function continuation(text5) {
 // src/core/indexer.ts
 var processor = unified().use(remarkParse).use(remarkGfm).use(remarkFrontmatter, ["yaml"]);
 var README = /^readme(?:\.[\w-]+)?\.(?:md|markdown|mdx|txt)$|^readme$/i;
+var AGENT_FILES = /* @__PURE__ */ new Set([
+  "AGENTS.md",
+  "CLAUDE.md",
+  "GEMINI.md",
+  ".cursorrules",
+  ".windsurfrules",
+  ".clinerules"
+]);
+var CONTRIBUTOR = /^(?:contributing|development|hacking)(?:\.md)?$/i;
 function isIndexedDoc(path2) {
   const segments = path2.split("/");
   const name = segments[segments.length - 1] ?? "";
   const dirs = segments.slice(0, -1);
   if (name === "") return false;
-  if (README.test(name)) return true;
-  if (name === "AGENTS.md" || name === "CLAUDE.md" || name === ".cursorrules") return true;
-  if (/\.md$/i.test(name) && dirs.includes("docs")) return true;
-  if (name.endsWith(".mdc") && dirs.length >= 2 && dirs.slice(-2).join("/") === ".cursor/rules") return true;
+  if (README.test(name) || CONTRIBUTOR.test(name) || AGENT_FILES.has(name))
+    return true;
+  const md = /\.md$/i.test(name);
+  if (md && dirs.includes("docs")) return true;
+  if (name === "SKILL.md" && dirs.includes("skills")) return true;
+  const parent = dirs.slice(-2).join("/");
+  if (name.endsWith(".mdc") && parent === ".cursor/rules") return true;
+  if (md && dirs.at(-1) === ".clinerules") return true;
+  const claude = dirs.indexOf(".claude");
+  if (md && claude >= 0 && (dirs[claude + 1] === "commands" || dirs[claude + 1] === "agents"))
+    return true;
+  if (dirs.length === 2 && dirs[0] === ".github") {
+    if (dirs[1] === "instructions") return name.endsWith(".instructions.md");
+    if (dirs[1] === "prompts") return name.endsWith(".prompt.md");
+    if (dirs[1] === "agents") return md;
+  }
   return path2 === ".github/copilot-instructions.md";
 }
 var SHELL_LANGS = /* @__PURE__ */ new Set(["sh", "bash", "shell", "console", "zsh", ""]);
@@ -42343,7 +42389,15 @@ function indexMarkdown(file, content3, options = {}) {
   }
   function addShell(hits, seg, shift, source, forceShadow) {
     for (const hit of hits) {
-      add(hit.kind, hit.normalized, seg, shift + hit.offset, source, hit.shadow || forceShadow, hit.context);
+      add(
+        hit.kind,
+        hit.normalized,
+        seg,
+        shift + hit.offset,
+        source,
+        hit.shadow || forceShadow,
+        hit.context
+      );
     }
   }
   function segmentsOf(node2) {
@@ -42363,13 +42417,23 @@ function indexMarkdown(file, content3, options = {}) {
     if (!shape) return void 0;
     const segs = segmentsOf(node2);
     const where = locateUrl(segs, node2.url, node2.type === "definition");
-    add("path", shape.normalized, where.seg, where.offset, source, shape.shadow);
+    add(
+      "path",
+      shape.normalized,
+      where.seg,
+      where.offset,
+      source,
+      shape.shadow
+    );
     return shape.normalized;
   }
   function indexInlineCode(node2, ctx) {
     const pos = node2.position;
     if (!pos || pos.start.line !== pos.end.line) return;
-    const raw = (lines[pos.start.line - 1] ?? "").slice(pos.start.column - 1, pos.end.column - 1);
+    const raw = (lines[pos.start.line - 1] ?? "").slice(
+      pos.start.column - 1,
+      pos.end.column - 1
+    );
     const ticks = /^`+/.exec(raw)?.[0].length ?? 0;
     let inner = raw.slice(ticks, raw.length - ticks);
     let shift = ticks;
@@ -42383,7 +42447,11 @@ function indexMarkdown(file, content3, options = {}) {
       shift += 2;
       text5 = text5.slice(2).trimStart();
     }
-    const seg = { text: text5, line: pos.start.line, col: pos.start.column + shift };
+    const seg = {
+      text: text5,
+      line: pos.start.line,
+      col: pos.start.column + shift
+    };
     if (text5 === "") return;
     if (!/\s/.test(text5)) {
       if (isBareEnvName(text5)) {
@@ -42398,8 +42466,14 @@ function indexMarkdown(file, content3, options = {}) {
         return;
       }
     }
-    const scan = scanShellLine(text5, { cwd: void 0 }, { mode: "command", inline: true });
-    const hits = scan.hits.filter((h) => !(h.kind === "path" && ctx.linkPaths?.has(h.normalized)));
+    const scan = scanShellLine(
+      text5,
+      { cwd: void 0 },
+      { mode: "command", inline: true }
+    );
+    const hits = scan.hits.filter(
+      (h) => !(h.kind === "path" && ctx.linkPaths?.has(h.normalized))
+    );
     addShell(hits, seg, 0, "inline-code", false);
   }
   function indexCode(node2) {
@@ -42417,7 +42491,8 @@ function indexMarkdown(file, content3, options = {}) {
       return { text: text5, line: firstLine + i, col: at + 1 };
     });
     if (lang === "dotenv") indexDotenv(segs);
-    else if (SHELL_LANGS.has(lang)) indexShell(segs, lang === "console", !fenced);
+    else if (SHELL_LANGS.has(lang))
+      indexShell(segs, lang === "console", !fenced);
     else indexOtherFence(segs);
   }
   function indexShell(segs, consoleLang, forceShadow) {
@@ -42439,7 +42514,10 @@ function indexMarkdown(file, content3, options = {}) {
       } else if (promptOnly && next === "none") {
         continue;
       }
-      const scan = scanShellLine(text5, state, { mode: next === "args" ? "args" : "command", inline: false });
+      const scan = scanShellLine(text5, state, {
+        mode: next === "args" ? "args" : "command",
+        inline: false
+      });
       addShell(scan.hits, seg, shift, "fence", forceShadow);
       next = scan.next;
       heredoc = scan.heredoc;
@@ -42450,7 +42528,8 @@ function indexMarkdown(file, content3, options = {}) {
       const match = /^(\s*(?:export\s+)?)([A-Za-z_]\w*)=/.exec(seg.text);
       if (!match) continue;
       const name = match[2];
-      if (isAssignedEnvName(name)) add("env", name, seg, match[1].length, "fence", false);
+      if (isAssignedEnvName(name))
+        add("env", name, seg, match[1].length, "fence", false);
       addShell(envVarsIn(seg.text, match[0].length), seg, 0, "fence", false);
     }
   }
@@ -42458,7 +42537,8 @@ function indexMarkdown(file, content3, options = {}) {
     for (const seg of segs) {
       for (const match of seg.text.matchAll(/[^\s"'`,;()[\]{}<>=|]+/g)) {
         const shape = pathFromCode(match[0]);
-        if (shape) add("path", shape.normalized, seg, match.index, "fence", true);
+        if (shape)
+          add("path", shape.normalized, seg, match.index, "fence", true);
       }
     }
   }
@@ -42473,7 +42553,8 @@ function indexMarkdown(file, content3, options = {}) {
           continue;
         }
         const shape = pathFromText(token.text);
-        if (shape) add("path", shape.normalized, seg, offset, "text", shape.shadow);
+        if (shape)
+          add("path", shape.normalized, seg, offset, "text", shape.shadow);
       }
     }
   }
@@ -42482,7 +42563,8 @@ function indexMarkdown(file, content3, options = {}) {
       case "link": {
         const reported = indexUrl(node2, "link");
         const linkPaths = reported === void 0 ? ctx.linkPaths : /* @__PURE__ */ new Set([...ctx.linkPaths ?? [], reported]);
-        for (const child of node2.children) walk(child, { inLink: true, linkPaths });
+        for (const child of node2.children)
+          walk(child, { inLink: true, linkPaths });
         return;
       }
       case "image":
@@ -42501,7 +42583,8 @@ function indexMarkdown(file, content3, options = {}) {
         if (!ctx.inLink) indexText(node2);
         return;
       default:
-        if ("children" in node2) for (const child of node2.children) walk(child, ctx);
+        if ("children" in node2)
+          for (const child of node2.children) walk(child, ctx);
     }
   }
   walk(tree, { inLink: false, linkPaths: void 0 });
@@ -42529,7 +42612,8 @@ var TRAILING_PUNCTUATION_CHARS = /* @__PURE__ */ new Set([...`.,;:!?)]}"'\u201D\
 function trimPunctuation(raw) {
   const lead = LEADING_PUNCTUATION.exec(raw)?.[0].length ?? 0;
   let end = raw.length;
-  while (end > lead && TRAILING_PUNCTUATION_CHARS.has(raw[end - 1])) end--;
+  while (end > lead && TRAILING_PUNCTUATION_CHARS.has(raw[end - 1]))
+    end--;
   return { text: raw.slice(lead, end), lead };
 }
 

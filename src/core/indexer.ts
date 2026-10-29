@@ -2,13 +2,32 @@
 // says about the repository (paths, npm scripts, Make targets, env vars, bins).
 // Strings in, references out: it never reads files (src/core stays pure).
 // Resolution against repo contents belongs to the Matcher (docs/decisions.md, phase 3).
-import type { Code, Definition, Image, InlineCode, Link, Nodes, Root, Text } from 'mdast';
-import remarkFrontmatter from 'remark-frontmatter';
-import remarkGfm from 'remark-gfm';
-import remarkParse from 'remark-parse';
-import { unified } from 'unified';
-import type { Reference, ReferenceContext, ReferenceKind, ReferenceSource } from './reference.ts';
-import { envVarsIn, scanShellLine, type ShellHit, type ShellState } from './shell.ts';
+import type {
+  Code,
+  Definition,
+  Image,
+  InlineCode,
+  Link,
+  Nodes,
+  Root,
+  Text,
+} from "mdast";
+import remarkFrontmatter from "remark-frontmatter";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+import type {
+  Reference,
+  ReferenceContext,
+  ReferenceKind,
+  ReferenceSource,
+} from "./reference.ts";
+import {
+  envVarsIn,
+  scanShellLine,
+  type ShellHit,
+  type ShellState,
+} from "./shell.ts";
 import {
   isAssignedEnvName,
   isBareEnvName,
@@ -16,34 +35,71 @@ import {
   pathFromText,
   pathFromUrl,
   type RepoIdentity,
-} from './shapes.ts';
+} from "./shapes.ts";
 
 export interface IndexOptions {
   /** The repository the doc lives in: lets same-repo github.com URLs count as paths. */
   repo?: RepoIdentity;
 }
 
-const processor = unified().use(remarkParse).use(remarkGfm).use(remarkFrontmatter, ['yaml']);
+const processor = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkFrontmatter, ["yaml"]);
 
 const README = /^readme(?:\.[\w-]+)?\.(?:md|markdown|mdx|txt)$|^readme$/i;
+
+/** Agent context files read by name at any depth. */
+const AGENT_FILES = new Set([
+  "AGENTS.md",
+  "CLAUDE.md",
+  "GEMINI.md",
+  ".cursorrules",
+  ".windsurfrules",
+  ".clinerules",
+]);
+
+/** Contributor docs at any depth: `CONTRIBUTING.md`, `DEVELOPMENT.md`, `HACKING.md` (any case, `.md` or none). */
+const CONTRIBUTOR = /^(?:contributing|development|hacking)(?:\.md)?$/i;
 
 /**
  * Whether a repo-relative POSIX path is a doc worth indexing: `README*` at any
  * depth (monorepo packages), `*.md` under a `docs/` directory at any depth,
- * `AGENTS.md` / `CLAUDE.md` / `.cursorrules` at any depth (nested ones are read
- * by the tools too), `.cursor/rules/*.mdc` and `.github/copilot-instructions.md`.
+ * contributor docs, and the agent context files: `AGENTS.md` / `CLAUDE.md` /
+ * `GEMINI.md` / `.cursorrules` / `.windsurfrules` / `.clinerules` at any depth
+ * (nested ones are read by the tools too), `.clinerules/*.md`,
+ * `.cursor/rules/*.mdc`, `SKILL.md` under a `skills/` directory, Claude Code
+ * commands and agents (`.md` at any depth under `.claude/commands/` or `.claude/agents/`), and Copilot's
+ * `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`,
+ * `.github/prompts/*.prompt.md` and `.github/agents/*.md`.
  * Vendored or generated docs are excluded by the config layer, not here.
  */
 export function isIndexedDoc(path: string): boolean {
-  const segments = path.split('/');
-  const name = segments[segments.length - 1] ?? '';
+  const segments = path.split("/");
+  const name = segments[segments.length - 1] ?? "";
   const dirs = segments.slice(0, -1);
-  if (name === '') return false;
-  if (README.test(name)) return true;
-  if (name === 'AGENTS.md' || name === 'CLAUDE.md' || name === '.cursorrules') return true;
-  if (/\.md$/i.test(name) && dirs.includes('docs')) return true;
-  if (name.endsWith('.mdc') && dirs.length >= 2 && dirs.slice(-2).join('/') === '.cursor/rules') return true;
-  return path === '.github/copilot-instructions.md';
+  if (name === "") return false;
+  if (README.test(name) || CONTRIBUTOR.test(name) || AGENT_FILES.has(name))
+    return true;
+  const md = /\.md$/i.test(name);
+  if (md && dirs.includes("docs")) return true;
+  if (name === "SKILL.md" && dirs.includes("skills")) return true;
+  const parent = dirs.slice(-2).join("/");
+  if (name.endsWith(".mdc") && parent === ".cursor/rules") return true;
+  if (md && dirs.at(-1) === ".clinerules") return true;
+  const claude = dirs.indexOf(".claude");
+  if (
+    md &&
+    claude >= 0 &&
+    (dirs[claude + 1] === "commands" || dirs[claude + 1] === "agents")
+  )
+    return true;
+  if (dirs.length === 2 && dirs[0] === ".github") {
+    if (dirs[1] === "instructions") return name.endsWith(".instructions.md");
+    if (dirs[1] === "prompts") return name.endsWith(".prompt.md");
+    if (dirs[1] === "agents") return md;
+  }
+  return path === ".github/copilot-instructions.md";
 }
 
 /** A run of source text on one line, with the 1-indexed column of its first character. */
@@ -60,11 +116,18 @@ interface Walk {
   linkPaths: ReadonlySet<string> | undefined;
 }
 
-const SHELL_LANGS = new Set(['sh', 'bash', 'shell', 'console', 'zsh', '']);
+const SHELL_LANGS = new Set(["sh", "bash", "shell", "console", "zsh", ""]);
 
-export function indexMarkdown(file: string, content: string, options: IndexOptions = {}): Reference[] {
-  const lines = content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
-  const tree: Root = processor.parse(lines.join('\n'));
+export function indexMarkdown(
+  file: string,
+  content: string,
+  options: IndexOptions = {},
+): Reference[] {
+  const lines = content
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+  const tree: Root = processor.parse(lines.join("\n"));
   const found = new Map<string, Reference>();
 
   function add(
@@ -83,7 +146,7 @@ export function indexMarkdown(file: string, content: string, options: IndexOptio
       line: seg.line,
       col: seg.col + offset,
       source,
-      contextLine: lines[seg.line - 1] ?? '',
+      contextLine: lines[seg.line - 1] ?? "",
       shadow,
     };
     if (context) ref.context = context;
@@ -92,9 +155,23 @@ export function indexMarkdown(file: string, content: string, options: IndexOptio
     if (!found.has(key)) found.set(key, ref);
   }
 
-  function addShell(hits: ShellHit[], seg: Segment, shift: number, source: ReferenceSource, forceShadow: boolean) {
+  function addShell(
+    hits: ShellHit[],
+    seg: Segment,
+    shift: number,
+    source: ReferenceSource,
+    forceShadow: boolean,
+  ) {
     for (const hit of hits) {
-      add(hit.kind, hit.normalized, seg, shift + hit.offset, source, hit.shadow || forceShadow, hit.context);
+      add(
+        hit.kind,
+        hit.normalized,
+        seg,
+        shift + hit.offset,
+        source,
+        hit.shadow || forceShadow,
+        hit.context,
+      );
     }
   }
 
@@ -104,7 +181,7 @@ export function indexMarkdown(file: string, content: string, options: IndexOptio
     if (!pos) return [];
     const out: Segment[] = [];
     for (let ln = pos.start.line; ln <= pos.end.line; ln++) {
-      const line = lines[ln - 1] ?? '';
+      const line = lines[ln - 1] ?? "";
       const from = ln === pos.start.line ? pos.start.column - 1 : 0;
       const to = ln === pos.end.line ? pos.end.column - 1 : line.length;
       out.push({ text: line.slice(from, to), line: ln, col: from + 1 });
@@ -112,78 +189,113 @@ export function indexMarkdown(file: string, content: string, options: IndexOptio
     return out;
   }
 
-  function indexUrl(node: Link | Image | Definition, source: ReferenceSource): string | undefined {
+  function indexUrl(
+    node: Link | Image | Definition,
+    source: ReferenceSource,
+  ): string | undefined {
     const shape = pathFromUrl(node.url, options.repo);
     if (!shape) return undefined;
     const segs = segmentsOf(node);
-    const where = locateUrl(segs, node.url, node.type === 'definition');
-    add('path', shape.normalized, where.seg, where.offset, source, shape.shadow);
+    const where = locateUrl(segs, node.url, node.type === "definition");
+    add(
+      "path",
+      shape.normalized,
+      where.seg,
+      where.offset,
+      source,
+      shape.shadow,
+    );
     return shape.normalized;
   }
 
   function indexInlineCode(node: InlineCode, ctx: Walk): void {
     const pos = node.position;
     if (!pos || pos.start.line !== pos.end.line) return;
-    const raw = (lines[pos.start.line - 1] ?? '').slice(pos.start.column - 1, pos.end.column - 1);
+    const raw = (lines[pos.start.line - 1] ?? "").slice(
+      pos.start.column - 1,
+      pos.end.column - 1,
+    );
     const ticks = /^`+/.exec(raw)?.[0].length ?? 0;
     let inner = raw.slice(ticks, raw.length - ticks);
     let shift = ticks;
-    if (inner.length >= 2 && inner.startsWith(' ') && inner.endsWith(' ') && inner.trim() !== '') {
+    if (
+      inner.length >= 2 &&
+      inner.startsWith(" ") &&
+      inner.endsWith(" ") &&
+      inner.trim() !== ""
+    ) {
       inner = inner.slice(1, -1);
       shift++;
     }
     shift += inner.length - inner.trimStart().length;
     let text = inner.trim();
-    if (text.startsWith('$ ')) {
+    if (text.startsWith("$ ")) {
       shift += 2;
       text = text.slice(2).trimStart();
     }
-    const seg: Segment = { text, line: pos.start.line, col: pos.start.column + shift };
-    if (text === '') return;
+    const seg: Segment = {
+      text,
+      line: pos.start.line,
+      col: pos.start.column + shift,
+    };
+    if (text === "") return;
 
     if (!/\s/.test(text)) {
       if (isBareEnvName(text)) {
-        add('env', text, seg, 0, 'inline-code', false);
+        add("env", text, seg, 0, "inline-code", false);
         return;
       }
       if (!/[$=]/.test(text)) {
         const shape = pathFromCode(text);
         if (shape && !ctx.linkPaths?.has(shape.normalized)) {
-          add('path', shape.normalized, seg, 0, 'inline-code', shape.shadow);
+          add("path", shape.normalized, seg, 0, "inline-code", shape.shadow);
         }
         return;
       }
     }
-    const scan = scanShellLine(text, { cwd: undefined }, { mode: 'command', inline: true });
-    const hits = scan.hits.filter((h) => !(h.kind === 'path' && ctx.linkPaths?.has(h.normalized)));
-    addShell(hits, seg, 0, 'inline-code', false);
+    const scan = scanShellLine(
+      text,
+      { cwd: undefined },
+      { mode: "command", inline: true },
+    );
+    const hits = scan.hits.filter(
+      (h) => !(h.kind === "path" && ctx.linkPaths?.has(h.normalized)),
+    );
+    addShell(hits, seg, 0, "inline-code", false);
   }
 
   function indexCode(node: Code): void {
     const pos = node.position;
     if (!pos) return;
     const startLine = pos.start.line;
-    const opening = (lines[startLine - 1] ?? '').slice(pos.start.column - 1);
+    const opening = (lines[startLine - 1] ?? "").slice(pos.start.column - 1);
     const fenced = /^(?:`{3,}|~{3,})/.test(opening);
     // Fenced content starts on the line after the fence; indented code on the first line.
     const firstLine = fenced ? startLine + 1 : startLine;
-    const lang = fenced ? (node.lang ?? '').toLowerCase() : '';
-    const body = node.value.split('\n');
+    const lang = fenced ? (node.lang ?? "").toLowerCase() : "";
+    const body = node.value.split("\n");
     const segs: Segment[] = body.map((text, i) => {
-      const raw = lines[firstLine - 1 + i] ?? '';
-      const at = raw.endsWith(text) ? raw.length - text.length : Math.max(raw.indexOf(text), 0);
+      const raw = lines[firstLine - 1 + i] ?? "";
+      const at = raw.endsWith(text)
+        ? raw.length - text.length
+        : Math.max(raw.indexOf(text), 0);
       return { text, line: firstLine + i, col: at + 1 };
     });
 
-    if (lang === 'dotenv') indexDotenv(segs);
-    else if (SHELL_LANGS.has(lang)) indexShell(segs, lang === 'console', !fenced);
+    if (lang === "dotenv") indexDotenv(segs);
+    else if (SHELL_LANGS.has(lang))
+      indexShell(segs, lang === "console", !fenced);
     else indexOtherFence(segs);
   }
 
-  function indexShell(segs: Segment[], consoleLang: boolean, forceShadow: boolean): void {
+  function indexShell(
+    segs: Segment[],
+    consoleLang: boolean,
+    forceShadow: boolean,
+  ): void {
     const promptOnly = consoleLang || segs.some((s) => /^\s*\$ /.test(s.text));
     const state: ShellState = { cwd: undefined };
-    let next: 'none' | 'args' | 'start' = 'none';
+    let next: "none" | "args" | "start" = "none";
     let heredoc: string | undefined;
     for (const seg of segs) {
       if (heredoc !== undefined) {
@@ -196,11 +308,14 @@ export function indexMarkdown(file: string, content: string, options: IndexOptio
       if (prompt) {
         shift = prompt[0].length;
         text = text.slice(shift);
-      } else if (promptOnly && next === 'none') {
+      } else if (promptOnly && next === "none") {
         continue;
       }
-      const scan = scanShellLine(text, state, { mode: next === 'args' ? 'args' : 'command', inline: false });
-      addShell(scan.hits, seg, shift, 'fence', forceShadow);
+      const scan = scanShellLine(text, state, {
+        mode: next === "args" ? "args" : "command",
+        inline: false,
+      });
+      addShell(scan.hits, seg, shift, "fence", forceShadow);
       next = scan.next;
       heredoc = scan.heredoc;
     }
@@ -211,8 +326,9 @@ export function indexMarkdown(file: string, content: string, options: IndexOptio
       const match = /^(\s*(?:export\s+)?)([A-Za-z_]\w*)=/.exec(seg.text);
       if (!match) continue;
       const name = match[2] as string;
-      if (isAssignedEnvName(name)) add('env', name, seg, (match[1] as string).length, 'fence', false);
-      addShell(envVarsIn(seg.text, match[0].length), seg, 0, 'fence', false);
+      if (isAssignedEnvName(name))
+        add("env", name, seg, (match[1] as string).length, "fence", false);
+      addShell(envVarsIn(seg.text, match[0].length), seg, 0, "fence", false);
     }
   }
 
@@ -221,7 +337,8 @@ export function indexMarkdown(file: string, content: string, options: IndexOptio
     for (const seg of segs) {
       for (const match of seg.text.matchAll(/[^\s"'`,;()[\]{}<>=|]+/g)) {
         const shape = pathFromCode(match[0]);
-        if (shape) add('path', shape.normalized, seg, match.index, 'fence', true);
+        if (shape)
+          add("path", shape.normalized, seg, match.index, "fence", true);
       }
     }
   }
@@ -230,43 +347,49 @@ export function indexMarkdown(file: string, content: string, options: IndexOptio
     for (const seg of segmentsOf(node)) {
       for (const match of seg.text.matchAll(/\S+/g)) {
         const token = trimPunctuation(match[0]);
-        if (token.text === '') continue;
+        if (token.text === "") continue;
         const offset = match.index + token.lead;
         if (isBareEnvName(token.text)) {
-          add('env', token.text, seg, offset, 'text', false);
+          add("env", token.text, seg, offset, "text", false);
           continue;
         }
         const shape = pathFromText(token.text);
-        if (shape) add('path', shape.normalized, seg, offset, 'text', shape.shadow);
+        if (shape)
+          add("path", shape.normalized, seg, offset, "text", shape.shadow);
       }
     }
   }
 
   function walk(node: Nodes, ctx: Walk): void {
     switch (node.type) {
-      case 'link': {
-        const reported = indexUrl(node, 'link');
-        const linkPaths = reported === undefined ? ctx.linkPaths : new Set([...(ctx.linkPaths ?? []), reported]);
-        for (const child of node.children) walk(child, { inLink: true, linkPaths });
+      case "link": {
+        const reported = indexUrl(node, "link");
+        const linkPaths =
+          reported === undefined
+            ? ctx.linkPaths
+            : new Set([...(ctx.linkPaths ?? []), reported]);
+        for (const child of node.children)
+          walk(child, { inLink: true, linkPaths });
         return;
       }
-      case 'image':
-        indexUrl(node, 'image');
+      case "image":
+        indexUrl(node, "image");
         return;
-      case 'definition':
-        indexUrl(node, 'definition');
+      case "definition":
+        indexUrl(node, "definition");
         return;
-      case 'inlineCode':
+      case "inlineCode":
         indexInlineCode(node, ctx);
         return;
-      case 'code':
+      case "code":
         indexCode(node);
         return;
-      case 'text':
+      case "text":
         if (!ctx.inLink) indexText(node);
         return;
       default:
-        if ('children' in node) for (const child of node.children) walk(child, ctx);
+        if ("children" in node)
+          for (const child of node.children) walk(child, ctx);
     }
   }
 
@@ -275,15 +398,23 @@ export function indexMarkdown(file: string, content: string, options: IndexOptio
 }
 
 /** Where the URL of a link, image or definition sits in its source, or its start if it cannot be found. */
-function locateUrl(segs: Segment[], url: string, definition: boolean): { seg: Segment; offset: number } {
+function locateUrl(
+  segs: Segment[],
+  url: string,
+  definition: boolean,
+): { seg: Segment; offset: number } {
   // The URL follows `]:` (definition) or the last `](` (inline link): searching from
   // there skips the label and stops before a title such as `[x](a.md "a.md")`.
-  const marker = definition ? ']:' : '](';
+  const marker = definition ? "]:" : "](";
   for (let k = segs.length - 1; k >= 0; k--) {
     const seg = segs[k] as Segment;
-    const open = definition ? (k === 0 ? seg.text.indexOf(marker) : -1) : seg.text.lastIndexOf(marker);
+    const open = definition
+      ? k === 0
+        ? seg.text.indexOf(marker)
+        : -1
+      : seg.text.lastIndexOf(marker);
     const from = open >= 0 ? open + 2 : 0;
-    const at = url === '' ? -1 : seg.text.indexOf(url, from);
+    const at = url === "" ? -1 : seg.text.indexOf(url, from);
     if (at >= 0) return { seg, offset: at };
     // The decoded URL is not in the source (`a\_b.md`, `a&amp;b.md`): point at the raw URL start.
     if (open >= 0) {
@@ -291,18 +422,23 @@ function locateUrl(segs: Segment[], url: string, definition: boolean): { seg: Se
       return { seg, offset: from + lead };
     }
   }
-  const first = segs[0] ?? { text: '', line: 1, col: 1 };
-  const label = first.text.startsWith('![') ? 2 : first.text.startsWith('[') && !definition ? 1 : 0;
+  const first = segs[0] ?? { text: "", line: 1, col: 1 };
+  const label = first.text.startsWith("![")
+    ? 2
+    : first.text.startsWith("[") && !definition
+      ? 1
+      : 0;
   return { seg: first, offset: label };
 }
 
 const LEADING_PUNCTUATION = /^[([{"'“‘<]+/;
-const TRAILING_PUNCTUATION_CHARS = new Set([...'.,;:!?)]}"\'”’>…']);
+const TRAILING_PUNCTUATION_CHARS = new Set([...".,;:!?)]}\"'”’>…"]);
 
 function trimPunctuation(raw: string): { text: string; lead: number } {
   const lead = LEADING_PUNCTUATION.exec(raw)?.[0].length ?? 0;
   // A loop from the end, not a `[…]+$` regex: that one is quadratic on long runs of punctuation.
   let end = raw.length;
-  while (end > lead && TRAILING_PUNCTUATION_CHARS.has(raw[end - 1] as string)) end--;
+  while (end > lead && TRAILING_PUNCTUATION_CHARS.has(raw[end - 1] as string))
+    end--;
   return { text: raw.slice(lead, end), lead };
 }
