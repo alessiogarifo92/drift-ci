@@ -148,7 +148,12 @@ describe("needlesOf", () => {
       "b",
     ]);
     expect(needlesOf([rule(["a"]), rule(undefined)])).toBeUndefined();
-    const { needles: _, ...withoutMethod } = rule([]);
+    const withoutMethod: Rule = {
+      id: "r",
+      kinds: [],
+      prepare: async () => undefined,
+      check: () => undefined,
+    };
     expect(needlesOf([withoutMethod])).toBeUndefined();
     expect(needlesOf([])).toEqual([]);
   });
