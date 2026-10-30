@@ -88,3 +88,24 @@ Process: one `architect` proposal, red-teamed by a `critic` (verdict: accept wit
 **Testing / CI.** Fixtures `test/fixtures/<case>/{base,head,expected.json}` built into temp 2-commit repos; pure unit tests for indexer/extractors; reporter snapshots; edge cases (delete+add, dir rename, monorepo resolution, CRLF, case, fence without lang, UTF-16 columns). Vitest + v8 coverage. CI on Node 24 (+22 for the CLI): lint, typecheck, tests + coverage, dogfood (`uses: ./`), dist freshness.
 
 **Still unverified.** Official wording on conflicted PRs and `GITHUB_SHA`; reachability of old `refs/pull/N/merge` SHAs (permalinks use `head.sha` anyway); git's built-in `diff.renameLimit` value (unset in config on git 2.43).
+
+## Gate 1 result (2026-10-30)
+
+Validation gate 1 (≥70% of diff-mode warnings correct) was measured in `drift-ci-validation`. Reports are in `reports/`, labels in `labels/`, and the change log in `criteria.md`.
+
+- **drift-ci 0.0.0+fb729f7, the 50 selected repos.** 1500 first-parent commits each, 198 findings, 188 labelled. Result: **66.2%** (95% CI 42.5–90.4%), **fail** on the point estimate. The false positives cluster in a few patterns:
+  - bare generic file names resolved through the root fallback;
+  - Hugo user-project `layouts/*`;
+  - conventional skills directories;
+  - standing prohibitions.
+- **#24** skips bare names reached only through the fallback and treats "was named" as history. Because it was designed after reading that sample, it was measured on the **28 eligible candidates that were not selected** (held-out), pinned 2026-10-30.
+- **drift-ci 0.0.0+9eebf2f, held-out.** 41,314 diff runs, 164 findings, 113 labelled. Result: **94.5%** (95% CI 83.7–98.6%), **pass**. Suggestions were 96% correct. Median run 292 ms, p95 802 ms.
+- **Labelling.** The orchestrating session plus a blind second labeller, made of independent AI agents working from the frozen criteria. Kappa was 0.93 on the 50-repo sample and 0.94 held-out; disagreements were adjudicated conservatively. Limitation: no maintainer labels.
+- **Decision.** Diff mode (`check`, the Action) meets gate 1, so the MVP ships it as the product. `scan` stays beta: about 10% precision on its adjudicated sample.
+- **Known false-positive patterns for later tickets:**
+  - Hugo-style user-project directories;
+  - conventional skills directories;
+  - standing prohibitions;
+  - dated plan documents;
+  - runtime environment variables read by the interpreter, not by the code (`PYTHONPATH`).
+- **Next.** Gate 2 (fix PRs on the measured repos) needs the owner's approval before any PR is opened.
