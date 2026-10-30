@@ -42972,6 +42972,7 @@ var HISTORICAL = new RegExp(
     "replaced\\s+(?:by|with)",
     "no\\s+longer",
     "used\\s+to\\s+be",
+    "(?:was|were)\\s+(?:named|called)",
     "now\\s+(?:lives|called|named)"
   ].map((alternative) => `\\b(?:${alternative})\\b`).join("|"),
   "i"
@@ -43848,6 +43849,10 @@ function candidatesFor(inv, docPath, normalized) {
   }
   return result;
 }
+function isBareName(normalized) {
+  if (normalized.startsWith("/")) return false;
+  return !normalized.replace(/^(?:\.\/)+/, "").replace(/\/+$/, "").includes("/");
+}
 function underBuildDir(path2) {
   return path2.split("/").some((segment) => BUILD_DIRS.has(segment));
 }
@@ -43968,6 +43973,9 @@ function pathRule() {
           posix3.join(posix3.dirname(doc.path), ref.normalized)
         );
         if (matched.path !== docRelative) return void 0;
+      }
+      if (matched.path !== candidatesFor(s.base, doc.path, ref.normalized)[0]?.path && isBareName(ref.normalized)) {
+        return void 0;
       }
       const inHead = [
         ...candidatesFor(s.head, doc.path, ref.normalized),

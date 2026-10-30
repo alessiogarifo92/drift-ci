@@ -57,6 +57,7 @@ const HISTORICAL = new RegExp(
     "replaced\\s+(?:by|with)",
     "no\\s+longer",
     "used\\s+to\\s+be",
+    "(?:was|were)\\s+(?:named|called)",
     "now\\s+(?:lives|called|named)",
   ]
     .map((alternative) => `\\b(?:${alternative})\\b`)
