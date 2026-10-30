@@ -576,8 +576,15 @@ describe('pathRule: links GitHub resolves doc-relative only', () => {
     expect(result).toEqual([]);
   });
 
-  it('still flags the same fallback match for inline code, which is not a link', async () => {
-    expect(await brief(mono('See `CONTRIBUTING.md`.'))).toEqual(['CONTRIBUTING.md -> .github/CONTRIBUTING.md']);
+  it('still flags a fallback match with a directory part for inline code, which is not a link', async () => {
+    const doc = 'See `docs/guide.md`.';
+    expect(
+      await brief({
+        base: { 'packages/ui/README.md': doc, 'docs/guide.md': F },
+        head: { 'packages/ui/README.md': doc, 'docs/handbook.md': F },
+        changes: { renamed: [{ from: 'docs/guide.md', to: 'docs/handbook.md' }] },
+      }),
+    ).toEqual(['docs/guide.md -> docs/handbook.md']);
   });
 
   it('still flags a doc-relative link, and a root-anchored one', async () => {
@@ -587,6 +594,64 @@ describe('pathRule: links GitHub resolves doc-relative only', () => {
         head: { 'docs/a.md': '[x](old.md) [y](/docs/old.md)' },
       }),
     ).toEqual(['docs/old.md -> none', 'docs/old.md -> none']);
+  });
+});
+
+describe('pathRule: bare names reached only through the fallback', () => {
+  const nested = (doc: string, removed = 'renovate.json'): Scenario => ({
+    base: { 'presets/README.md': doc, [removed]: F },
+    head: { 'presets/README.md': doc },
+    changes: { deleted: [removed] },
+  });
+
+  it.each([
+    ['a file name', 'Add a `renovate.json` to your repository.', 'renovate.json'],
+    ['a ./ name', 'Copy `./renovate.json`.', 'renovate.json'],
+    ['a directory name', 'Write the files to `tmp/`.', 'tmp/x.go'],
+  ])('does not flag %s that only the repo-root fallback resolved', async (_label, doc, removed) => {
+    expect(await brief(nested(doc, removed))).toEqual([]);
+  });
+
+  it('does not flag a bare name that only the package-root fallback resolved', async () => {
+    expect(
+      await brief({
+        base: { 'web/package.json': '{}', 'web/docs/setup.md': '`tailwind.config.js`', 'web/tailwind.config.js': F },
+        head: { 'web/package.json': '{}', 'web/docs/setup.md': '`tailwind.config.js`' },
+        changes: { deleted: ['web/tailwind.config.js'] },
+      }),
+    ).toEqual([]);
+  });
+
+  it('does not flag a bare name of the root contributing guide from a nested README (the accepted cost)', async () => {
+    expect(
+      await brief({
+        base: { 'packages/ui/README.md': 'See `CONTRIBUTING.md`.', 'CONTRIBUTING.md': F },
+        head: { 'packages/ui/README.md': 'See `CONTRIBUTING.md`.', '.github/CONTRIBUTING.md': F },
+        changes: { renamed: [{ from: 'CONTRIBUTING.md', to: '.github/CONTRIBUTING.md' }] },
+      }),
+    ).toEqual([]);
+  });
+
+  it('still flags a bare name next to the doc', async () => {
+    expect(await brief(nested('Edit `notes.md`.', 'presets/notes.md'))).toEqual(['presets/notes.md -> none']);
+  });
+
+  it('still flags a bare name in a root-level doc, whose own directory is the root', async () => {
+    expect(
+      await brief({
+        base: { 'README.md': 'Edit `renovate.json`.', 'renovate.json': F },
+        head: { 'README.md': 'Edit `renovate.json`.' },
+        changes: { deleted: ['renovate.json'] },
+      }),
+    ).toEqual(['renovate.json -> none']);
+  });
+
+  it('still flags a root-anchored link and a same-repo URL', async () => {
+    const doc = 'Edit [it](/renovate.json).\n\nOr [it](https://github.com/o/r/blob/main/renovate.json).';
+    expect(await brief({ ...nested(doc), repo: { owner: 'o', name: 'r' } })).toEqual([
+      'renovate.json -> none',
+      'renovate.json -> none',
+    ]);
   });
 });
 

@@ -118,6 +118,15 @@ function candidatesFor(
   return result;
 }
 
+/** A relative reference with no directory part, such as `tmp/` or `./renovate.json`. */
+function isBareName(normalized: string): boolean {
+  if (normalized.startsWith("/")) return false;
+  return !normalized
+    .replace(/^(?:\.\/)+/, "")
+    .replace(/\/+$/, "")
+    .includes("/");
+}
+
 function underBuildDir(path: string): boolean {
   return path.split("/").some((segment) => BUILD_DIRS.has(segment));
 }
@@ -299,6 +308,15 @@ export function pathRule(): Rule {
           posix.join(posix.dirname(doc.path), ref.normalized),
         );
         if (matched.path !== docRelative) return undefined;
+      }
+      // A bare name (`renovate.json`, `tmp`) that a nested doc only reaches through the fallback usually means a
+      // file of the reader's own project; matching this repo's file of that name is a coincidence.
+      if (
+        matched.path !==
+          candidatesFor(s.base, doc.path, ref.normalized)[0]?.path &&
+        isBareName(ref.normalized)
+      ) {
+        return undefined;
       }
 
       const inHead = [

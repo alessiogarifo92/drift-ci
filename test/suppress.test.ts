@@ -112,6 +112,8 @@ describe('hasHistoricalContext', () => {
     'the file now lives in lib/',
     'the target is now called build',
     'now named `build`',
+    'the helper was named `lib/util/semver.js`',
+    'they were called `old-*`',
   ])('is true for %j', (line) => {
     expect(hasHistoricalContext(line)).toBe(true);
   });
